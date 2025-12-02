@@ -10,18 +10,23 @@ import {
   Printer,
   Share2,
   Layers,
-  Search,
   PenTool,
   ScanLine,
   Wand2,
   Languages,
   FileInput,
-  //Merge,
   Edit3,
   Eye,
   Loader2,
   ChevronLeft,
   ChevronRight,
+  Bold,
+  Italic,
+  Underline,
+  Strikethrough,
+  Highlighter,
+  Baseline,
+  CaseSensitive,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -66,6 +71,18 @@ interface ReadFileResult {
 
 const SAMPLE_FILES: OpenFile[] = [];
 const LINES_PER_PAGE = 500;
+
+// --- Constants ---
+const FONTS = [
+  "Arial",
+  "Times New Roman",
+  "Courier New",
+  "Georgia",
+  "Verdana",
+  "Tahoma",
+  "Trebuchet MS",
+];
+const FONT_SIZES = ["1", "2", "3", "4", "5", "6", "7"]; // execCommand uses 1-7 scale
 
 // --- Components ---
 
@@ -131,20 +148,16 @@ const DocxViewer = ({
     url: string | null;
   }>({ x: 0, y: 0, url: null });
 
-  // Handle content updates while preserving cursor position (basic implementation)
   useEffect(() => {
     if (contentRef.current) {
-      // If not editable, always sync. If editable, only sync if empty (initial load) to avoid overwriting user input
       if (!isEditable || contentRef.current.innerHTML === "") {
         contentRef.current.innerHTML = content;
       }
     }
   }, [content, isEditable]);
 
-  // --- Tooltip Event Handlers ---
   const handleMouseOver = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
-    // Check if we are hovering over a link
     if (target.tagName === "A") {
       const url = target.getAttribute("href");
       if (url) {
@@ -154,7 +167,6 @@ const DocxViewer = ({
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    // If tooltip is active, move it with cursor
     if (tooltip.url) {
       setTooltip((prev) => ({ ...prev, x: e.clientX, y: e.clientY }));
     }
@@ -162,7 +174,6 @@ const DocxViewer = ({
 
   const handleMouseOut = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
-    // Hide tooltip when leaving link
     if (target.tagName === "A") {
       setTooltip({ x: 0, y: 0, url: null });
     }
@@ -170,7 +181,6 @@ const DocxViewer = ({
 
   return (
     <div className="w-full h-full bg-slate-50 overflow-auto p-8 flex justify-center relative">
-      {/* Styles to simulate a Word document page with Link Styling added */}
       <style>{`
         .docx-content { outline: none; }
         .docx-content h1 { font-size: 2em; font-weight: bold; margin-bottom: 0.5em; color: #1e293b; }
@@ -181,13 +191,13 @@ const DocxViewer = ({
         .docx-content strong { font-weight: bold; color: #0f172a; }
         .docx-content table { width: 100%; border-collapse: collapse; margin-bottom: 1em; }
         .docx-content td, .docx-content th { border: 1px solid #cbd5e1; padding: 0.5em; }
-        /* Link Styling: Blue and Underlined */
         .docx-content a { color: #2563eb; text-decoration: underline; cursor: pointer; }
         .docx-content a:hover { color: #1d4ed8; }
       `}</style>
 
       <div
         ref={contentRef}
+        id="editor-container" // ID for execCommand targeting if needed
         className={`docx-content w-full max-w-[850px] min-h-[1100px] bg-white shadow-lg p-16 transition-shadow ${isEditable ? "ring-2 ring-indigo-500/50 cursor-text" : ""}`}
         contentEditable={isEditable}
         onInput={(e) => onUpdate(e.currentTarget.innerHTML)}
@@ -197,7 +207,6 @@ const DocxViewer = ({
         onMouseOut={handleMouseOut}
       />
 
-      {/* Floating Url Tooltip */}
       {tooltip.url && (
         <div
           className="fixed z-50 px-3 py-1.5 text-xs font-medium text-white bg-slate-800 rounded-md shadow-xl pointer-events-none whitespace-nowrap border border-slate-700 animate-in fade-in zoom-in-95 duration-150"
@@ -325,34 +334,6 @@ function App() {
     );
   };
 
-  const getToolsForFile = (file: OpenFile) => {
-    switch (file.type) {
-      case "pdf":
-        return [
-          { icon: PenTool, label: "Sign" },
-          { icon: ScanLine, label: "OCR" },
-        ];
-      case "text":
-        return [
-          { icon: Wand2, label: "Rewrite" },
-          { icon: Languages, label: "Translate" },
-          { icon: Search, label: "Grammar" },
-        ];
-      case "image":
-        return [
-          { icon: FileInput, label: "To PDF" },
-          { icon: ScanLine, label: "Extract Text" },
-        ];
-      case "html":
-        return [
-          { icon: FileInput, label: "To PDF" },
-          { icon: Printer, label: "Print" },
-        ];
-      default:
-        return [];
-    }
-  };
-
   const closeTab = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     const newFiles = openFiles.filter((f) => f.id !== id);
@@ -367,6 +348,204 @@ function App() {
   const goToPage = (page: number) => {
     if (textPagination && page >= 1 && page <= textPagination.totalPages) {
       setCurrentPage(page);
+    }
+  };
+
+  // --- Formatting Actions (Rich Text) ---
+  const execCmd = (command: string, value: string | undefined = undefined) => {
+    if (viewerMode !== "edit" || activeFile?.type !== "html") return;
+    // Fixed: Passed 'true' as string to satisfy TypeScript type requirement
+    document.execCommand("styleWithCSS", false, "true");
+    document.execCommand(command, false, value);
+    // Focus back on editor to ensure user can keep typing
+    const editor = document.getElementById("editor-container");
+    if (editor) editor.focus();
+  };
+
+  const changeCase = () => {
+    if (viewerMode !== "edit" || activeFile?.type !== "html") return;
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      const text = selection.toString();
+      if (text) {
+        // Cycle: Lower -> Title -> Upper
+        let replacement = text.toLowerCase();
+        if (text === text.toLowerCase()) {
+          // To Title Case (approx)
+          replacement = text.replace(/\b\w/g, (l) => l.toUpperCase());
+        } else if (text === text.replace(/\b\w/g, (l) => l.toUpperCase())) {
+          replacement = text.toUpperCase();
+        }
+        document.execCommand("insertText", false, replacement);
+      }
+    }
+  };
+
+  // --- Toolbar Logic ---
+  const renderHomeToolbar = () => {
+    if (activeToolGroup !== "Home") return null;
+
+    // Show Rich Text Tools ONLY if editing a DOCX/HTML file
+    const showRichText = activeFile?.type === "html" && viewerMode === "edit";
+
+    return (
+      <div className="flex items-center gap-2 h-full">
+        {/* Standard File Ops */}
+        <div className="flex items-center gap-1 pr-4 border-r border-slate-700">
+          <ToolButton icon={Save} label="Save" onClick={handleSaveFile} />
+          <ToolButton icon={Printer} label="Print" />
+          <ToolButton icon={Share2} label="Share" />
+        </div>
+
+        {/* Edit Mode Toggle */}
+        <div className="flex items-center gap-1 pr-4 border-r border-slate-700">
+          <button
+            onClick={() =>
+              setViewerMode((prev) => (prev === "view" ? "edit" : "view"))
+            }
+            className={`flex flex-col items-center justify-center w-16 h-14 rounded-lg group ${viewerMode === "edit" ? "bg-slate-700 text-indigo-300" : "text-slate-400 hover:bg-slate-700"}`}
+          >
+            {viewerMode === "view" ? (
+              <Edit3 size={20} className="mb-1" />
+            ) : (
+              <Eye size={20} className="mb-1" />
+            )}
+            <span className="text-[10px] font-medium">
+              {viewerMode === "view" ? "Edit Mode" : "Read Mode"}
+            </span>
+          </button>
+        </div>
+
+        {/* Rich Text Formatting Group */}
+        {showRichText && (
+          <>
+            {/* Font & Size */}
+            <div className="flex flex-col gap-1 pr-4 border-r border-slate-700 px-2">
+              <div className="flex items-center gap-1">
+                <select
+                  onChange={(e) => execCmd("fontName", e.target.value)}
+                  className="h-6 w-32 bg-slate-900 border border-slate-700 rounded text-xs text-white px-1 outline-none"
+                >
+                  <option>Font...</option>
+                  {FONTS.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  onChange={(e) => execCmd("fontSize", e.target.value)}
+                  className="h-6 w-12 bg-slate-900 border border-slate-700 rounded text-xs text-white px-1 outline-none"
+                >
+                  <option>Sz</option>
+                  {FONT_SIZES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-0.5 justify-center">
+                <FormatBtn
+                  icon={Bold}
+                  cmd="bold"
+                  onClick={() => execCmd("bold")}
+                />
+                <FormatBtn
+                  icon={Italic}
+                  cmd="italic"
+                  onClick={() => execCmd("italic")}
+                />
+                <FormatBtn
+                  icon={Underline}
+                  cmd="underline"
+                  onClick={() => execCmd("underline")}
+                />
+                <FormatBtn
+                  icon={Strikethrough}
+                  cmd="strikethrough"
+                  onClick={() => execCmd("strikethrough")}
+                />
+                <FormatBtn
+                  icon={CaseSensitive}
+                  cmd="case"
+                  onClick={changeCase}
+                  tooltip="Change Case"
+                />
+              </div>
+            </div>
+
+            {/* Colors */}
+            <div className="flex items-center gap-1 px-2 border-r border-slate-700">
+              <div className="flex flex-col items-center gap-1">
+                <div className="flex gap-1">
+                  <button
+                    className="w-8 h-6 bg-yellow-200 rounded flex items-center justify-center hover:ring-1 ring-white"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      execCmd("hiliteColor", "yellow");
+                    }}
+                    title="Highlight"
+                  >
+                    <Highlighter size={14} className="text-slate-900" />
+                  </button>
+                  <button
+                    className="w-8 h-6 bg-slate-700 rounded flex items-center justify-center hover:bg-slate-600 border-b-4 border-red-500"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      execCmd("foreColor", "red");
+                    }}
+                    title="Text Color"
+                  >
+                    <Baseline size={14} className="text-white" />
+                  </button>
+                </div>
+                <span className="text-[9px] text-slate-400">Color</span>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Dynamic Tools (Existing) */}
+        {!showRichText && (
+          <div className="flex items-center gap-1 px-4">
+            {activeFile &&
+              getToolsForFile(activeFile).map((tool, idx) => (
+                <ToolButton
+                  key={idx}
+                  icon={tool.icon}
+                  label={tool.label}
+                  highlight
+                />
+              ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const getToolsForFile = (file: OpenFile) => {
+    // Only return these for non-edit-html modes to avoid clutter
+    switch (file.type) {
+      case "pdf":
+        return [
+          { icon: PenTool, label: "Sign" },
+          { icon: ScanLine, label: "OCR" },
+        ];
+      case "text":
+        return [
+          { icon: Wand2, label: "Rewrite" },
+          { icon: Languages, label: "Translate" },
+        ];
+      case "image":
+        return [
+          { icon: FileInput, label: "To PDF" },
+          { icon: ScanLine, label: "Extract Text" },
+        ];
+      case "html":
+        return [{ icon: FileInput, label: "To PDF" }];
+      default:
+        return [];
     }
   };
 
@@ -454,39 +633,17 @@ function App() {
                 </button>
               ))}
             </div>
-            <div className="flex-1 flex items-center px-4 gap-2">
-              <div className="flex items-center gap-1 pr-4 border-r border-slate-700">
-                <ToolButton icon={Save} label="Save" onClick={handleSaveFile} />
-                <ToolButton icon={Printer} label="Print" />
-                <ToolButton icon={Share2} label="Share" />
-              </div>
-              <div className="flex items-center gap-1 pr-4 border-r border-slate-700">
-                <button
-                  onClick={() =>
-                    setViewerMode((prev) => (prev === "view" ? "edit" : "view"))
-                  }
-                  className={`flex flex-col items-center justify-center w-16 h-14 rounded-lg group ${viewerMode === "edit" ? "bg-slate-700 text-indigo-300" : "text-slate-400 hover:bg-slate-700"}`}
-                >
-                  {viewerMode === "view" ? (
-                    <Edit3 size={20} className="mb-1" />
-                  ) : (
-                    <Eye size={20} className="mb-1" />
-                  )}
-                  <span className="text-[10px] font-medium">
-                    {viewerMode === "view" ? "Edit Mode" : "Read Mode"}
-                  </span>
-                </button>
-              </div>
-              {activeFile &&
-                getToolsForFile(activeFile).map((tool, idx) => (
-                  <ToolButton
-                    key={idx}
-                    icon={tool.icon}
-                    label={tool.label}
-                    highlight
-                  />
-                ))}
-              <div className="ml-auto">
+            <div className="flex-1 flex items-center px-4 gap-2 overflow-x-auto no-scrollbar">
+              {/* Render dynamic Home Toolbar or other groups */}
+              {activeToolGroup === "Home" ? (
+                renderHomeToolbar()
+              ) : (
+                <div className="flex items-center h-full text-slate-500 text-sm">
+                  Features for {activeToolGroup} coming soon...
+                </div>
+              )}
+
+              <div className="ml-auto flex items-center">
                 <button
                   onClick={() => setIsAiPanelOpen(!isAiPanelOpen)}
                   className={`flex flex-col items-center justify-center w-16 h-14 rounded-xl border ${isAiPanelOpen ? "bg-indigo-600 border-indigo-500 text-white" : "border-transparent hover:bg-slate-700 text-slate-300"}`}
@@ -723,6 +880,29 @@ const ToolButton = ({
   >
     <Icon size={20} className="mb-1" />
     <span className="text-[10px] font-medium">{label}</span>
+  </button>
+);
+
+const FormatBtn = ({
+  icon: Icon,
+  cmd,
+  onClick,
+  tooltip,
+}: {
+  icon: LucideIcon;
+  cmd: string;
+  onClick: () => void;
+  tooltip?: string;
+}) => (
+  <button
+    onMouseDown={(e) => {
+      e.preventDefault();
+      onClick();
+    }} // use onMouseDown to prevent focus loss
+    className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+    title={tooltip || cmd}
+  >
+    <Icon size={16} />
   </button>
 );
 
