@@ -11,7 +11,9 @@
   },
   "dependencies": {
     "clsx": "^2.1.1",
+    "html-to-docx": "^1.8.0",
     "lucide-react": "^0.555.0",
+    "mammoth": "^1.11.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

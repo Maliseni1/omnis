@@ -1,8 +1,9 @@
 import { app, BrowserWindow, ipcMain, dialog } from "electron";
 import path from "node:path";
 import fs from "node:fs/promises";
+import mammoth from "mammoth";
+import HTMLtoDOCX from "html-to-docx"; // New import
 
-// The built directory structure
 process.env.DIST = path.join(__dirname, "../dist");
 process.env.VITE_PUBLIC = app.isPackaged
   ? process.env.DIST
@@ -23,6 +24,7 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
       contextIsolation: true,
+      webSecurity: false,
     },
   });
 
@@ -39,7 +41,6 @@ function createWindow() {
 
 // --- IPC HANDLERS ---
 
-// 1. Handle File Open
 ipcMain.handle("dialog:openFile", async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ["openFile"],
@@ -48,15 +49,20 @@ ipcMain.handle("dialog:openFile", async () => {
 
   if (canceled) return null;
   const filePath = filePaths[0];
+  return {
+    path: filePath,
+    name: path.basename(filePath),
+    ext: path.extname(filePath).toLowerCase().replace(".", ""),
+  };
+});
+
+ipcMain.handle("file:readFile", async (_, filePath) => {
+  if (!filePath) return { error: "No path provided" };
+
   const ext = path.extname(filePath).toLowerCase().replace(".", "");
-  const name = path.basename(filePath);
 
-  let content = "";
-  let type = "unknown";
-
-  // Categorize and Read
-  const imageExts = ["png", "jpg", "jpeg", "webp", "gif", "svg", "bmp"];
-  const codeExts = [
+  const imageExts = ["png", "jpg", "jpeg", "webp", "gif", "svg", "bmp", "ico"];
+  const textExts = [
     "txt",
     "md",
     "json",
@@ -66,43 +72,110 @@ ipcMain.handle("dialog:openFile", async () => {
     "jsx",
     "css",
     "html",
+    "xml",
+    "yaml",
+    "yml",
+    "ini",
+    "env",
+    "log",
+    "csv",
     "py",
     "java",
     "c",
     "cpp",
+    "h",
+    "cs",
+    "go",
+    "rs",
+    "php",
+    "rb",
+    "sh",
+    "bat",
+    "ps1",
+    "sql",
+    "gitignore",
+    "editorconfig",
+    "package",
+    "lock",
   ];
 
   try {
     if (imageExts.includes(ext)) {
-      type = "image";
       const buffer = await fs.readFile(filePath);
-      content = `data:image/${ext === "svg" ? "svg+xml" : ext};base64,${buffer.toString("base64")}`;
-    } else if (ext === "pdf") {
-      type = "pdf";
-      const buffer = await fs.readFile(filePath);
-      content = `data:application/pdf;base64,${buffer.toString("base64")}`;
-    } else if (codeExts.includes(ext)) {
-      type = "text";
-      content = await fs.readFile(filePath, "utf-8");
-    } else {
-      type = "binary"; // For DOCX, etc., we treat as binary for now (placeholders)
-      content = "Preview unavailable for this binary format.";
+      return {
+        content: `data:image/${ext === "svg" ? "svg+xml" : ext};base64,${buffer.toString("base64")}`,
+        type: "image",
+        ext,
+      };
     }
-  } catch (err) {
-    console.error("Error reading file", err);
-    return null;
-  }
 
-  return { id: crypto.randomUUID(), name, type, ext, content, path: filePath };
+    if (ext === "pdf") {
+      const buffer = await fs.readFile(filePath);
+      return {
+        content: `data:application/pdf;base64,${buffer.toString("base64")}`,
+        type: "pdf",
+        ext,
+      };
+    }
+
+    if (ext === "docx") {
+      const buffer = await fs.readFile(filePath);
+      const result = await mammoth.convertToHtml({ buffer });
+      return {
+        content: result.value,
+        type: "html",
+        ext,
+      };
+    }
+
+    if (textExts.includes(ext) || ext === "") {
+      const content = await fs.readFile(filePath, "utf-8");
+      return { content, type: "text", ext };
+    }
+
+    try {
+      const stat = await fs.stat(filePath);
+      if (stat.size < 2 * 1024 * 1024) {
+        const raw = await fs.readFile(filePath, "utf-8");
+        if (raw.includes("\u0000")) {
+          return { content: "Binary content detected.", type: "binary", ext };
+        }
+        return { content: raw, type: "text", ext };
+      }
+    } catch (e) {}
+
+    return {
+      content: "File too large or format not supported.",
+      type: "binary",
+      ext,
+    };
+  } catch (err) {
+    console.error("Read Error:", err);
+    return { error: String(err), type: "error", ext };
+  }
 });
 
-// 2. Handle File Save
+// 3. SAVE Handler (Updated for DOCX)
 ipcMain.handle("file:saveFile", async (_, { path: filePath, content }) => {
   try {
-    await fs.writeFile(filePath, content, "utf-8");
+    const ext = path.extname(filePath).toLowerCase().replace(".", "");
+
+    if (ext === "docx") {
+      // Convert the HTML content back to a DOCX buffer
+      const buffer = await HTMLtoDOCX(content, null, {
+        table: { row: { cantSplit: true } },
+        footer: true,
+        pageNumber: true,
+      });
+      await fs.writeFile(filePath, buffer);
+    } else {
+      // Default text save
+      await fs.writeFile(filePath, content, "utf-8");
+    }
+
     return { success: true };
   } catch (err) {
-    console.error("Failed to save", err);
+    console.error("Save Error:", err);
     return { success: false, error: String(err) };
   }
 });

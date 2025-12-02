@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   FileText,
   Image as ImageIcon,
@@ -9,7 +9,6 @@ import {
   Save,
   Printer,
   Share2,
-  Layout,
   Layers,
   Search,
   PenTool,
@@ -17,17 +16,24 @@ import {
   Wand2,
   Languages,
   FileInput,
-  Merge,
   Edit3,
   Eye,
+  Loader2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 // --- Types ---
 type ViewerMode = "view" | "edit";
-
-// File types extended to categorize content
-type FileCategory = "image" | "pdf" | "text" | "binary" | "unknown";
+type FileCategory =
+  | "image"
+  | "pdf"
+  | "text"
+  | "html"
+  | "binary"
+  | "unknown"
+  | "error";
 
 interface OpenFile {
   id: string;
@@ -39,13 +45,26 @@ interface OpenFile {
   lastSavedContent?: string;
 }
 
-// Interface for the save operation result
 interface SaveResult {
   success: boolean;
   error?: string;
 }
 
+interface DialogSelection {
+  path: string;
+  name: string;
+  ext: string;
+}
+
+interface ReadFileResult {
+  content: string;
+  type: FileCategory;
+  ext: string;
+  error?: string;
+}
+
 const SAMPLE_FILES: OpenFile[] = [];
+const LINES_PER_PAGE = 500;
 
 // --- Components ---
 
@@ -60,10 +79,8 @@ const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
   }, [onFinish]);
 
   return (
-    // Fixed: Changed z-[100] to z-100
     <div className="fixed inset-0 z-100 bg-slate-950 flex flex-col items-center justify-center animate-in fade-in duration-700">
       <div className="flex flex-col items-center">
-        {/* Fixed: Used state for conditional rendering instead of conflicting classes */}
         {!imgError ? (
           <img
             src="/logo.png"
@@ -76,7 +93,6 @@ const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
             O
           </div>
         )}
-
         <h1 className="text-4xl font-bold text-white tracking-tight mb-2">
           Omnis
         </h1>
@@ -84,7 +100,6 @@ const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
           Universal File Ecosystem
         </p>
       </div>
-
       <div className="absolute bottom-12 flex flex-col items-center">
         <span className="text-slate-500 text-xs uppercase tracking-widest mb-1">
           From
@@ -97,6 +112,38 @@ const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
   );
 };
 
+// --- Sub-Viewers ---
+
+const DocxViewer = ({ content }: { content: string }) => (
+  // We use a style tag here to restore default document styling that Tailwind resets
+  <div className="w-full h-full bg-white overflow-auto p-12">
+    <style>{`
+      .docx-content h1 { font-size: 2em; font-weight: bold; margin-bottom: 0.5em; color: #1e293b; }
+      .docx-content h2 { font-size: 1.5em; font-weight: bold; margin-bottom: 0.5em; margin-top: 1em; color: #334155; }
+      .docx-content p { margin-bottom: 1em; line-height: 1.6; color: #475569; }
+      .docx-content ul { list-style-type: disc; margin-left: 1.5em; margin-bottom: 1em; }
+      .docx-content ol { list-style-type: decimal; margin-left: 1.5em; margin-bottom: 1em; }
+      .docx-content strong { font-weight: bold; color: #0f172a; }
+      .docx-content table { width: 100%; border-collapse: collapse; margin-bottom: 1em; }
+      .docx-content td, .docx-content th { border: 1px solid #cbd5e1; padding: 0.5em; }
+    `}</style>
+    <div
+      className="docx-content max-w-4xl mx-auto"
+      dangerouslySetInnerHTML={{ __html: content }}
+    />
+  </div>
+);
+
+const PdfViewer = ({ content }: { content: string }) => (
+  <div className="w-full h-full bg-slate-100 flex items-center justify-center">
+    <object data={content} type="application/pdf" className="w-full h-full">
+      <div className="flex flex-col items-center justify-center h-full text-slate-500">
+        <p>Unable to display PDF directly.</p>
+      </div>
+    </object>
+  </div>
+);
+
 function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -105,57 +152,91 @@ function App() {
   const [isAiPanelOpen, setIsAiPanelOpen] = useState<boolean>(false);
   const [viewerMode, setViewerMode] = useState<ViewerMode>("view");
   const [aiMode, setAiMode] = useState<"cloud" | "local">("cloud");
-
-  // State for sidebar logo fallback
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingFile, setLoadingFile] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
   const [sidebarLogoError, setSidebarLogoError] = useState(false);
 
   const activeFile = openFiles.find((f) => f.id === activeTabId);
 
-  // --- Actions ---
+  // Pagination for large text files
+  const textPagination = useMemo(() => {
+    if (!activeFile || activeFile.type !== "text") return null;
+    const content = activeFile.content || "";
+    const lines = content.split("\n");
+    const totalPages = Math.ceil(lines.length / LINES_PER_PAGE);
+    return { allLines: lines, totalPages, count: lines.length };
+  }, [activeFile]);
+
+  const currentPageContent = useMemo(() => {
+    if (!textPagination) return "";
+    const start = (currentPage - 1) * LINES_PER_PAGE;
+    const end = start + LINES_PER_PAGE;
+    return textPagination.allLines.slice(start, end).join("\n");
+  }, [textPagination, currentPage]);
 
   const handleOpenFile = async () => {
     try {
-      // Fix: Explicitly cast the result from the bridge to OpenFile or null
-      const fileData = (await window.ipcRenderer.invoke(
+      const selection = (await window.ipcRenderer.invoke(
         "dialog:openFile"
-      )) as OpenFile | null;
+      )) as DialogSelection | null;
 
-      if (fileData) {
-        // Initialize lastSavedContent so we can detect changes later
-        const newFile: OpenFile = {
-          ...fileData,
-          lastSavedContent: fileData.content,
-        };
-        setOpenFiles((prev) => [...prev, newFile]);
-        setActiveTabId(fileData.id);
-        // Default to view mode when opening a file
-        setViewerMode("view");
+      if (selection) {
+        setIsLoading(true);
+        setLoadingFile(selection.name);
+
+        const readResult = (await window.ipcRenderer.invoke(
+          "file:readFile",
+          selection.path
+        )) as ReadFileResult;
+
+        if (readResult && !readResult.error) {
+          const newFile: OpenFile = {
+            id: crypto.randomUUID(),
+            name: selection.name,
+            path: selection.path,
+            ext: selection.ext,
+            type: readResult.type,
+            content: readResult.content,
+            lastSavedContent: readResult.content,
+          };
+
+          setOpenFiles((prev) => [...prev, newFile]);
+          setActiveTabId(newFile.id);
+          setViewerMode("view");
+          setCurrentPage(1);
+        } else {
+          console.error("Read error:", readResult?.error);
+        }
       }
     } catch (error) {
       console.error("Failed to open file:", error);
+    } finally {
+      setIsLoading(false);
+      setLoadingFile(null);
     }
   };
 
   const handleSaveFile = async () => {
     if (!activeFile) return;
+    setIsLoading(true);
     try {
-      // Fix: Explicitly cast the save result
       const result = (await window.ipcRenderer.invoke("file:saveFile", {
         path: activeFile.path,
         content: activeFile.content,
       })) as SaveResult;
 
       if (result.success) {
-        // Update the lastSavedContent to match current content (clearing the dirty state)
         setOpenFiles((prev) =>
           prev.map((f) =>
             f.id === activeFile.id ? { ...f, lastSavedContent: f.content } : f
           )
         );
-        console.log("File saved successfully");
       }
     } catch (error) {
       console.error("Save failed:", error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -174,7 +255,6 @@ function App() {
         return [
           { icon: PenTool, label: "Sign" },
           { icon: ScanLine, label: "OCR" },
-          { icon: Merge, label: "Merge PDF" },
         ];
       case "text":
         return [
@@ -186,7 +266,11 @@ function App() {
         return [
           { icon: FileInput, label: "To PDF" },
           { icon: ScanLine, label: "Extract Text" },
-          { icon: Layout, label: "Crop" },
+        ];
+      case "html":
+        return [
+          { icon: FileInput, label: "To PDF" },
+          { icon: Printer, label: "Print" },
         ];
       default:
         return [];
@@ -204,6 +288,12 @@ function App() {
     }
   };
 
+  const goToPage = (page: number) => {
+    if (textPagination && page >= 1 && page <= textPagination.totalPages) {
+      setCurrentPage(page);
+    }
+  };
+
   return (
     <>
       {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
@@ -214,7 +304,6 @@ function App() {
         {/* Sidebar */}
         <div className="w-20 bg-slate-950 flex flex-col items-center py-4 border-r border-slate-800 z-20 shadow-xl">
           <div className="mb-8 w-10 h-10 flex items-center justify-center">
-            {/* Fixed: Used state for sidebar logo fallback */}
             {!sidebarLogoError ? (
               <img
                 src="/logo.png"
@@ -228,7 +317,6 @@ function App() {
               </div>
             )}
           </div>
-
           <nav className="flex flex-col gap-6 w-full items-center">
             <SidebarBtn icon={FileText} active />
             <SidebarBtn icon={ScanLine} />
@@ -245,14 +333,16 @@ function App() {
             {openFiles.map((file) => (
               <div
                 key={file.id}
-                onClick={() => setActiveTabId(file.id)}
+                onClick={() => {
+                  setActiveTabId(file.id);
+                  setCurrentPage(1);
+                }}
                 className={`relative px-4 py-1.5 text-xs font-medium max-w-[200px] truncate cursor-pointer rounded-t-lg flex items-center gap-2 border-t border-x transition-colors
                   ${activeTabId === file.id ? "bg-slate-800 text-indigo-100 border-slate-700 border-b-slate-800" : "bg-slate-900/40 text-slate-500 border-transparent hover:bg-slate-900"}
                 `}
               >
                 <FileIconType type={file.type} />
                 <span className="truncate">{file.name}</span>
-                {/* Dirty Indicator (Blue Dot) */}
                 {file.content !== file.lastSavedContent && (
                   <div
                     className="w-2 h-2 rounded-full bg-indigo-500 ml-1"
@@ -294,8 +384,6 @@ function App() {
                 <ToolButton icon={Printer} label="Print" />
                 <ToolButton icon={Share2} label="Share" />
               </div>
-
-              {/* Toggle Edit/View Mode */}
               <div className="flex items-center gap-1 pr-4 border-r border-slate-700">
                 <button
                   onClick={() =>
@@ -313,7 +401,6 @@ function App() {
                   </span>
                 </button>
               </div>
-
               {activeFile &&
                 getToolsForFile(activeFile).map((tool, idx) => (
                   <ToolButton
@@ -323,7 +410,6 @@ function App() {
                     highlight
                   />
                 ))}
-
               <div className="ml-auto">
                 <button
                   onClick={() => setIsAiPanelOpen(!isAiPanelOpen)}
@@ -339,26 +425,51 @@ function App() {
           {/* Workspace */}
           <div className="flex-1 bg-slate-900 relative flex overflow-hidden">
             <div className="flex-1 p-8 flex justify-center items-start bg-[radial-gradient(#1e293b_1px,transparent_1px)] bg-size-[16px_16px] overflow-auto">
-              {activeFile ? (
+              {isLoading ? (
+                <div className="flex flex-col items-center justify-center mt-32 text-indigo-400 animate-in fade-in duration-300">
+                  <div className="relative">
+                    <Loader2 size={48} className="animate-spin mb-4" />
+                    <div className="absolute inset-0 bg-indigo-500/20 blur-xl rounded-full"></div>
+                  </div>
+                  <p className="text-slate-300 font-medium">
+                    Processing {loadingFile || "file"}...
+                  </p>
+                  <p className="text-slate-500 text-xs mt-2">
+                    Analyzing content & preparing view
+                  </p>
+                </div>
+              ) : activeFile ? (
                 <div
                   className={`w-full max-w-5xl bg-white min-h-[800px] shadow-2xl rounded-sm text-slate-800 animate-in fade-in zoom-in-95 duration-300 overflow-hidden flex flex-col ${viewerMode === "edit" ? "ring-4 ring-indigo-500/20" : ""}`}
                 >
                   {/* File Header */}
-                  <div className="px-12 py-8 border-b border-slate-100 bg-white">
-                    <h1 className="text-3xl font-bold text-slate-900">
-                      {activeFile.name}
-                    </h1>
-                    <div className="flex items-center gap-2 mt-2">
-                      <span className="text-xs text-slate-400 uppercase tracking-wider font-bold">
-                        {activeFile.ext} • {viewerMode.toUpperCase()}
-                      </span>
-                      {/* Save Status */}
-                      {activeFile.content !== activeFile.lastSavedContent && (
-                        <span className="text-xs text-indigo-500 font-medium bg-indigo-50 px-2 py-0.5 rounded">
-                          Unsaved Changes
+                  <div className="px-12 py-8 border-b border-slate-100 bg-white flex justify-between items-start">
+                    <div>
+                      <h1 className="text-3xl font-bold text-slate-900">
+                        {activeFile.name}
+                      </h1>
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className="text-xs text-slate-400 uppercase tracking-wider font-bold">
+                          {activeFile.ext} • {viewerMode.toUpperCase()}
                         </span>
-                      )}
+                        {activeFile.content !== activeFile.lastSavedContent && (
+                          <span className="text-xs text-indigo-500 font-medium bg-indigo-50 px-2 py-0.5 rounded">
+                            Unsaved Changes
+                          </span>
+                        )}
+                      </div>
                     </div>
+                    {/* Text File Pagination Stats */}
+                    {activeFile.type === "text" && textPagination && (
+                      <div className="text-right">
+                        <p className="text-2xl font-bold text-slate-200">
+                          {textPagination.count.toLocaleString()}
+                        </p>
+                        <p className="text-xs text-slate-400 uppercase tracking-wider">
+                          Lines
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   {/* Universal Content Renderer */}
@@ -376,43 +487,80 @@ function App() {
 
                     {/* 2. PDF VIEWER */}
                     {activeFile.type === "pdf" && (
-                      <iframe
-                        src={activeFile.content}
-                        className="w-full h-[800px] border-none"
-                        title="PDF Viewer"
-                      />
+                      <PdfViewer content={activeFile.content} />
                     )}
 
-                    {/* 3. TEXT/CODE VIEWER & EDITOR */}
+                    {/* 3. DOCX/HTML VIEWER */}
+                    {activeFile.type === "html" && (
+                      <DocxViewer content={activeFile.content} />
+                    )}
+
+                    {/* 4. TEXT/CODE VIEWER & EDITOR */}
                     {activeFile.type === "text" && (
-                      <>
-                        {viewerMode === "edit" ? (
-                          <textarea
-                            className="w-full h-[800px] p-12 font-mono text-sm leading-relaxed focus:outline-none resize-none text-slate-800 bg-white"
-                            value={activeFile.content}
-                            onChange={(e) => updateFileContent(e.target.value)}
-                            spellCheck={false}
-                          />
-                        ) : (
-                          <pre className="w-full h-full p-12 font-mono text-sm leading-relaxed whitespace-pre-wrap overflow-auto text-slate-700 bg-white">
-                            {activeFile.content}
-                          </pre>
-                        )}
-                      </>
-                    )}
+                      <div className="flex flex-col h-full">
+                        <div className="flex-1 relative min-h-[600px]">
+                          {viewerMode === "edit" ? (
+                            <textarea
+                              className="w-full h-full p-12 font-mono text-sm leading-relaxed focus:outline-none resize-none text-slate-800 bg-white"
+                              value={activeFile.content}
+                              onChange={(e) =>
+                                updateFileContent(e.target.value)
+                              }
+                              spellCheck={false}
+                            />
+                          ) : (
+                            <pre className="w-full h-full p-12 font-mono text-sm leading-relaxed whitespace-pre-wrap overflow-auto text-slate-700 bg-white">
+                              {currentPageContent || "File is empty."}
+                            </pre>
+                          )}
+                        </div>
 
-                    {/* 4. FALLBACK */}
-                    {activeFile.type === "binary" && (
-                      <div className="flex flex-col items-center justify-center h-[600px] text-slate-400">
-                        <FileText size={64} className="mb-4 opacity-20" />
-                        <p>Binary file preview not supported yet.</p>
+                        {/* Pagination Footer */}
+                        {viewerMode === "view" &&
+                          textPagination &&
+                          textPagination.totalPages > 1 && (
+                            <div className="bg-slate-50 border-t border-slate-200 px-6 py-3 flex justify-between items-center sticky bottom-0">
+                              <button
+                                onClick={() => goToPage(currentPage - 1)}
+                                disabled={currentPage === 1}
+                                className="flex items-center gap-1 text-slate-600 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-slate-600 text-sm font-medium transition-colors"
+                              >
+                                <ChevronLeft size={16} /> Prev
+                              </button>
+                              <span className="text-xs font-mono text-slate-400">
+                                Page{" "}
+                                <span className="text-slate-700 font-bold">
+                                  {currentPage}
+                                </span>{" "}
+                                of {textPagination.totalPages}
+                              </span>
+                              <button
+                                onClick={() => goToPage(currentPage + 1)}
+                                disabled={
+                                  currentPage === textPagination.totalPages
+                                }
+                                className="flex items-center gap-1 text-slate-600 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-slate-600 text-sm font-medium transition-colors"
+                              >
+                                Next <ChevronRight size={16} />
+                              </button>
+                            </div>
+                          )}
                       </div>
                     )}
 
-                    {/* 5. UNKNOWN/ERROR */}
-                    {activeFile.type === "unknown" && (
+                    {/* 5. FALLBACK / BINARY */}
+                    {(activeFile.type === "binary" ||
+                      activeFile.type === "unknown" ||
+                      activeFile.type === "error") && (
                       <div className="flex flex-col items-center justify-center h-[600px] text-slate-400">
-                        <p>Unknown file format.</p>
+                        <FileText size={64} className="mb-4 opacity-20" />
+                        <p className="text-lg font-medium text-slate-600">
+                          Preview unavailable
+                        </p>
+                        <p className="text-sm mt-2">
+                          This file type is binary or not supported for direct
+                          viewing.
+                        </p>
                       </div>
                     )}
                   </div>
@@ -501,7 +649,7 @@ const ToolButton = ({
 const FileIconType = ({ type }: { type: string }) => {
   if (type === "image")
     return <ImageIcon size={14} className="text-violet-400" />;
-  if (type === "text")
+  if (type === "text" || type === "html")
     return <FileText size={14} className="text-emerald-400" />;
   return (
     <FileText
