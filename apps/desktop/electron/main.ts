@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog } from "electron";
 import path from "node:path";
 import fs from "node:fs/promises";
 import mammoth from "mammoth";
-import HTMLtoDOCX from "html-to-docx"; // New import
+import HTMLtoDOCX from "html-to-docx";
 
 process.env.DIST = path.join(__dirname, "../dist");
 process.env.VITE_PUBLIC = app.isPackaged
@@ -100,6 +100,7 @@ ipcMain.handle("file:readFile", async (_, filePath) => {
   ];
 
   try {
+    // 1. Handle Images
     if (imageExts.includes(ext)) {
       const buffer = await fs.readFile(filePath);
       return {
@@ -109,6 +110,7 @@ ipcMain.handle("file:readFile", async (_, filePath) => {
       };
     }
 
+    // 2. Handle PDF
     if (ext === "pdf") {
       const buffer = await fs.readFile(filePath);
       return {
@@ -118,6 +120,7 @@ ipcMain.handle("file:readFile", async (_, filePath) => {
       };
     }
 
+    // 3. Handle DOCX (Read as HTML)
     if (ext === "docx") {
       const buffer = await fs.readFile(filePath);
       const result = await mammoth.convertToHtml({ buffer });
@@ -128,21 +131,26 @@ ipcMain.handle("file:readFile", async (_, filePath) => {
       };
     }
 
+    // 4. Handle Text & Code
     if (textExts.includes(ext) || ext === "") {
       const content = await fs.readFile(filePath, "utf-8");
       return { content, type: "text", ext };
     }
 
+    // 5. Universal Fallback
     try {
       const stat = await fs.stat(filePath);
       if (stat.size < 2 * 1024 * 1024) {
         const raw = await fs.readFile(filePath, "utf-8");
+        // Basic binary check
         if (raw.includes("\u0000")) {
           return { content: "Binary content detected.", type: "binary", ext };
         }
         return { content: raw, type: "text", ext };
       }
-    } catch (e) {}
+    } catch {
+      // Ignore fallback errors and return generic message
+    }
 
     return {
       content: "File too large or format not supported.",
@@ -155,13 +163,13 @@ ipcMain.handle("file:readFile", async (_, filePath) => {
   }
 });
 
-// 3. SAVE Handler (Updated for DOCX)
+// 3. SAVE Handler
 ipcMain.handle("file:saveFile", async (_, { path: filePath, content }) => {
   try {
     const ext = path.extname(filePath).toLowerCase().replace(".", "");
 
     if (ext === "docx") {
-      // Convert the HTML content back to a DOCX buffer
+      // Convert HTML back to DOCX buffer
       const buffer = await HTMLtoDOCX(content, null, {
         table: { row: { cantSplit: true } },
         footer: true,
@@ -169,7 +177,7 @@ ipcMain.handle("file:saveFile", async (_, { path: filePath, content }) => {
       });
       await fs.writeFile(filePath, buffer);
     } else {
-      // Default text save
+      // Standard text save
       await fs.writeFile(filePath, content, "utf-8");
     }
 

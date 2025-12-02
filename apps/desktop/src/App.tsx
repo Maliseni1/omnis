@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   FileText,
   Image as ImageIcon,
@@ -16,6 +16,7 @@ import {
   Wand2,
   Languages,
   FileInput,
+  //Merge,
   Edit3,
   Eye,
   Loader2,
@@ -114,25 +115,100 @@ const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
 
 // --- Sub-Viewers ---
 
-const DocxViewer = ({ content }: { content: string }) => (
-  // We use a style tag here to restore default document styling that Tailwind resets
-  <div className="w-full h-full bg-white overflow-auto p-12">
-    <style>{`
-      .docx-content h1 { font-size: 2em; font-weight: bold; margin-bottom: 0.5em; color: #1e293b; }
-      .docx-content h2 { font-size: 1.5em; font-weight: bold; margin-bottom: 0.5em; margin-top: 1em; color: #334155; }
-      .docx-content p { margin-bottom: 1em; line-height: 1.6; color: #475569; }
-      .docx-content ul { list-style-type: disc; margin-left: 1.5em; margin-bottom: 1em; }
-      .docx-content ol { list-style-type: decimal; margin-left: 1.5em; margin-bottom: 1em; }
-      .docx-content strong { font-weight: bold; color: #0f172a; }
-      .docx-content table { width: 100%; border-collapse: collapse; margin-bottom: 1em; }
-      .docx-content td, .docx-content th { border: 1px solid #cbd5e1; padding: 0.5em; }
-    `}</style>
-    <div
-      className="docx-content max-w-4xl mx-auto"
-      dangerouslySetInnerHTML={{ __html: content }}
-    />
-  </div>
-);
+const DocxViewer = ({
+  content,
+  isEditable,
+  onUpdate,
+}: {
+  content: string;
+  isEditable: boolean;
+  onUpdate: (html: string) => void;
+}) => {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [tooltip, setTooltip] = useState<{
+    x: number;
+    y: number;
+    url: string | null;
+  }>({ x: 0, y: 0, url: null });
+
+  // Handle content updates while preserving cursor position (basic implementation)
+  useEffect(() => {
+    if (contentRef.current) {
+      // If not editable, always sync. If editable, only sync if empty (initial load) to avoid overwriting user input
+      if (!isEditable || contentRef.current.innerHTML === "") {
+        contentRef.current.innerHTML = content;
+      }
+    }
+  }, [content, isEditable]);
+
+  // --- Tooltip Event Handlers ---
+  const handleMouseOver = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    // Check if we are hovering over a link
+    if (target.tagName === "A") {
+      const url = target.getAttribute("href");
+      if (url) {
+        setTooltip({ x: e.clientX, y: e.clientY, url });
+      }
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    // If tooltip is active, move it with cursor
+    if (tooltip.url) {
+      setTooltip((prev) => ({ ...prev, x: e.clientX, y: e.clientY }));
+    }
+  };
+
+  const handleMouseOut = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    // Hide tooltip when leaving link
+    if (target.tagName === "A") {
+      setTooltip({ x: 0, y: 0, url: null });
+    }
+  };
+
+  return (
+    <div className="w-full h-full bg-slate-50 overflow-auto p-8 flex justify-center relative">
+      {/* Styles to simulate a Word document page with Link Styling added */}
+      <style>{`
+        .docx-content { outline: none; }
+        .docx-content h1 { font-size: 2em; font-weight: bold; margin-bottom: 0.5em; color: #1e293b; }
+        .docx-content h2 { font-size: 1.5em; font-weight: bold; margin-bottom: 0.5em; margin-top: 1em; color: #334155; }
+        .docx-content p { margin-bottom: 1em; line-height: 1.6; color: #475569; }
+        .docx-content ul { list-style-type: disc; margin-left: 1.5em; margin-bottom: 1em; }
+        .docx-content ol { list-style-type: decimal; margin-left: 1.5em; margin-bottom: 1em; }
+        .docx-content strong { font-weight: bold; color: #0f172a; }
+        .docx-content table { width: 100%; border-collapse: collapse; margin-bottom: 1em; }
+        .docx-content td, .docx-content th { border: 1px solid #cbd5e1; padding: 0.5em; }
+        /* Link Styling: Blue and Underlined */
+        .docx-content a { color: #2563eb; text-decoration: underline; cursor: pointer; }
+        .docx-content a:hover { color: #1d4ed8; }
+      `}</style>
+
+      <div
+        ref={contentRef}
+        className={`docx-content w-full max-w-[850px] min-h-[1100px] bg-white shadow-lg p-16 transition-shadow ${isEditable ? "ring-2 ring-indigo-500/50 cursor-text" : ""}`}
+        contentEditable={isEditable}
+        onInput={(e) => onUpdate(e.currentTarget.innerHTML)}
+        suppressContentEditableWarning={true}
+        onMouseOver={handleMouseOver}
+        onMouseMove={handleMouseMove}
+        onMouseOut={handleMouseOut}
+      />
+
+      {/* Floating Url Tooltip */}
+      {tooltip.url && (
+        <div
+          className="fixed z-50 px-3 py-1.5 text-xs font-medium text-white bg-slate-800 rounded-md shadow-xl pointer-events-none whitespace-nowrap border border-slate-700 animate-in fade-in zoom-in-95 duration-150"
+          style={{ top: tooltip.y + 20, left: tooltip.x + 15 }}
+        >
+          {tooltip.url}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const PdfViewer = ({ content }: { content: string }) => (
   <div className="w-full h-full bg-slate-100 flex items-center justify-center">
@@ -490,9 +566,13 @@ function App() {
                       <PdfViewer content={activeFile.content} />
                     )}
 
-                    {/* 3. DOCX/HTML VIEWER */}
+                    {/* 3. DOCX/HTML VIEWER & EDITOR */}
                     {activeFile.type === "html" && (
-                      <DocxViewer content={activeFile.content} />
+                      <DocxViewer
+                        content={activeFile.content}
+                        isEditable={viewerMode === "edit"}
+                        onUpdate={updateFileContent}
+                      />
                     )}
 
                     {/* 4. TEXT/CODE VIEWER & EDITOR */}
@@ -651,12 +731,8 @@ const FileIconType = ({ type }: { type: string }) => {
     return <ImageIcon size={14} className="text-violet-400" />;
   if (type === "text" || type === "html")
     return <FileText size={14} className="text-emerald-400" />;
-  return (
-    <FileText
-      size={14}
-      className={type === "pdf" ? "text-rose-400" : "text-blue-400"}
-    />
-  );
+  if (type === "pdf") return <FileText size={14} className="text-rose-400" />;
+  return <FileText size={14} className="text-slate-400" />;
 };
 
 export default App;
