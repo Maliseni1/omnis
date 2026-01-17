@@ -1,11 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { configurePdfWorker, getPdfLib } from '../utils/pdfWorker';
 
-// Define minimal types for PDFJS objects
-interface PdfViewport {
-  width: number;
-  height: number;
-}
 
 export const usePdf = (content: string) => {
   const [pdfDoc, setPdfDoc] = useState<any>(null);

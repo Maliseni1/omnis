@@ -1,16 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   FileText, 
-  Image as ImageIcon, 
   Settings, 
-  X, 
   Plus, 
   Bot, 
   Save, 
   Printer, 
   Share2,
   Layers,
-  PenTool,
   ScanLine,
   Wand2,
   Languages,
@@ -29,13 +26,36 @@ import {
   CaseSensitive,
   Send,
   Sparkles,
+  Trash2,
+  ArrowRight,
+  X,
+  PenTool,
   FileType as FileTypeIcon
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
-// Import separated, robust viewer components
+// DnD Imports
+import { 
+  DndContext, 
+  closestCenter, 
+  KeyboardSensor, 
+  PointerSensor, 
+  useSensor, 
+  useSensors, 
+} from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+
+import { 
+  arrayMove, 
+  SortableContext, 
+  sortableKeyboardCoordinates, 
+  horizontalListSortingStrategy 
+} from '@dnd-kit/sortable';
+
+// Import Components
 import { PdfViewer } from './components/PdfViewer';
 import { DocxViewer } from './components/DocxViewer';
+import { SortableTab } from './components/SortableTab';
 
 // --- Types ---
 type ViewerMode = 'view' | 'edit';
@@ -132,6 +152,15 @@ function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const [sidebarLogoError, setSidebarLogoError] = useState(false);
   
+  // Context Menu State
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; fileId: string } | null>(null);
+
+  // DnD Sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+  
   // AI Chat State
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([{
     id: 'intro',
@@ -166,32 +195,71 @@ function App() {
     return textPagination.allLines.slice(start, end).join('\n');
   }, [textPagination, currentPage]);
 
+  // --- Handlers ---
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setOpenFiles((items) => {
+        const oldIndex = items.findIndex((i) => i.id === active.id);
+        const newIndex = items.findIndex((i) => i.id === over.id);
+        return arrayMove(items, oldIndex, newIndex);
+      });
+    }
+  };
+
+  const handleContextMenu = (e: React.MouseEvent, fileId: string) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, fileId });
+  };
+
+  const closeContextMenu = () => setContextMenu(null);
+
+  const closeTab = (e: React.MouseEvent | null, id: string) => {
+    e?.stopPropagation();
+    const newFiles = openFiles.filter(f => f.id !== id);
+    setOpenFiles(newFiles);
+    if (activeTabId === id) setActiveTabId(newFiles.length > 0 ? newFiles[newFiles.length - 1].id : null);
+    closeContextMenu();
+  };
+
+  const closeOtherTabs = () => {
+    if (!contextMenu) return;
+    const fileToKeep = openFiles.find(f => f.id === contextMenu.fileId);
+    if (fileToKeep) {
+      setOpenFiles([fileToKeep]);
+      setActiveTabId(fileToKeep.id);
+    }
+    closeContextMenu();
+  };
+
+  const closeAllTabs = () => {
+    setOpenFiles([]);
+    setActiveTabId(null);
+    closeContextMenu();
+  };
+
   // --- AI Actions ---
   const handleAiSubmit = async (text: string) => {
     if (!text.trim()) return;
-    
-    // 1. Add User Message
     const userMsg: ChatMessage = { id: crypto.randomUUID(), role: 'user', text, timestamp: new Date() };
     setChatHistory(prev => [...prev, userMsg]);
     setChatInput('');
     setIsAiThinking(true);
-    
     if (!isAiPanelOpen) setIsAiPanelOpen(true);
 
     try {
-      // 2. Call Backend
       const result = (await window.ipcRenderer.invoke('ai:generate', {
         prompt: text,
         context: activeFile?.content || "", 
         mode: aiMode
       })) as { response: string };
 
-      // 3. Add AI Message
       const aiMsg: ChatMessage = { id: crypto.randomUUID(), role: 'ai', text: result.response, timestamp: new Date() };
       setChatHistory(prev => [...prev, aiMsg]);
     } catch (err) {
       console.error(err);
-      setChatHistory(prev => [...prev, { id: crypto.randomUUID(), role: 'ai', text: "Sorry, I encountered an error processing your request.", timestamp: new Date() }]);
+      setChatHistory(prev => [...prev, { id: crypto.randomUUID(), role: 'ai', text: "Error processing request.", timestamp: new Date() }]);
     } finally {
       setIsAiThinking(false);
     }
@@ -270,13 +338,6 @@ function App() {
         document.execCommand('insertText', false, replacement);
       }
     }
-  };
-
-  const closeTab = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    const newFiles = openFiles.filter(f => f.id !== id);
-    setOpenFiles(newFiles);
-    if (activeTabId === id) setActiveTabId(newFiles.length > 0 ? newFiles[newFiles.length - 1].id : null);
   };
 
   const goToPage = (page: number) => {
@@ -379,7 +440,10 @@ function App() {
     <>
       {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
       
-      <div className={`flex h-screen w-full bg-slate-900 text-slate-100 font-sans overflow-hidden transition-opacity duration-700 ${showSplash ? 'opacity-0' : 'opacity-100'}`}>
+      <div 
+        className={`flex h-screen w-full bg-slate-900 text-slate-100 font-sans overflow-hidden transition-opacity duration-700 ${showSplash ? 'opacity-0' : 'opacity-100'}`}
+        onClick={closeContextMenu} // Close context menu on click anywhere
+      >
         
         {/* Sidebar */}
         <div className="w-20 bg-slate-950 flex flex-col items-center py-4 border-r border-slate-800 z-20 shadow-xl">
@@ -403,24 +467,51 @@ function App() {
         {/* Main Content */}
         <div className="flex-1 flex flex-col min-w-0">
           
-          {/* Top Bar (Tabs) */}
-          <div className="h-10 bg-slate-950 flex items-end px-2 gap-1 border-b border-slate-800 pt-1 drag-region">
-            {openFiles.map(file => (
-              <div 
-                key={file.id}
-                onClick={() => { setActiveTabId(file.id); setCurrentPage(1); }}
-                className={`relative px-4 py-1.5 text-xs font-medium max-w-[200px] truncate cursor-pointer rounded-t-lg flex items-center gap-2 border-t border-x transition-colors
-                  ${activeTabId === file.id ? 'bg-slate-800 text-indigo-100 border-slate-700 border-b-slate-800' : 'bg-slate-900/40 text-slate-500 border-transparent hover:bg-slate-900'}
-                `}
+          {/* Top Bar (Tabs with DnD) */}
+          <div className="h-10 bg-slate-950 flex items-end px-2 gap-1 border-b border-slate-800 pt-1 drag-region overflow-x-auto no-scrollbar">
+            <DndContext 
+              sensors={sensors} 
+              collisionDetection={closestCenter} 
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext 
+                items={openFiles.map(f => f.id)}
+                strategy={horizontalListSortingStrategy}
               >
-                <FileIconType type={file.type} />
-                <span className="truncate">{file.name}</span>
-                {file.content !== file.lastSavedContent && <div className="w-2 h-2 rounded-full bg-indigo-500 ml-1" title="Unsaved changes"></div>}
-                <button onClick={(e) => closeTab(e, file.id)} className="ml-2 hover:text-red-400"><X size={12} /></button>
-              </div>
-            ))}
-            <button onClick={handleOpenFile} className="p-2 text-slate-500 hover:text-indigo-400 transition-colors"><Plus size={16} /></button>
+                {openFiles.map(file => (
+                  <SortableTab 
+                    key={file.id} 
+                    file={file} 
+                    isActive={activeTabId === file.id}
+                    onActivate={() => { setActiveTabId(file.id); setCurrentPage(1); }}
+                    onClose={(e) => closeTab(e, file.id)}
+                    onContextMenu={(e) => handleContextMenu(e, file.id)}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
+            
+            <button onClick={handleOpenFile} className="p-2 text-slate-500 hover:text-indigo-400 transition-colors shrink-0"><Plus size={16} /></button>
           </div>
+
+          {/* Context Menu */}
+          {contextMenu && (
+            <div 
+              className="fixed z-50 bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-100"
+              style={{ top: contextMenu.y, left: contextMenu.x }}
+            >
+              <button onClick={() => closeTab(null, contextMenu.fileId)} className="w-full text-left px-4 py-2 text-xs text-slate-300 hover:bg-slate-700 hover:text-white flex items-center gap-2">
+                <X size={12} /> Close Tab
+              </button>
+              <button onClick={closeOtherTabs} className="w-full text-left px-4 py-2 text-xs text-slate-300 hover:bg-slate-700 hover:text-white flex items-center gap-2">
+                <ArrowRight size={12} /> Close Others
+              </button>
+              <div className="h-px bg-slate-700 my-1"></div>
+              <button onClick={closeAllTabs} className="w-full text-left px-4 py-2 text-xs text-red-400 hover:bg-slate-700 hover:text-red-300 flex items-center gap-2">
+                <Trash2 size={12} /> Close All
+              </button>
+            </div>
+          )}
 
           {/* Toolbar */}
           <div className="h-28 bg-slate-800 border-b border-slate-700 shadow-lg flex flex-col z-10">
@@ -639,12 +730,5 @@ const FormatBtn = ({ icon: Icon, cmd, onClick, tooltip }: { icon: LucideIcon, cm
     <Icon size={16} />
   </button>
 );
-
-const FileIconType = ({ type }: { type: string }) => {
-  if (type === 'image') return <ImageIcon size={14} className="text-violet-400" />;
-  if (type === 'text' || type === 'html') return <FileText size={14} className="text-emerald-400" />;
-  if (type === 'pdf') return <FileText size={14} className="text-rose-400" />;
-  return <FileTypeIcon size={14} className="text-slate-400" />;
-};
 
 export default App;

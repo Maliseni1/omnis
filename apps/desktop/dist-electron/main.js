@@ -29356,8 +29356,8 @@ function requireLib() {
 }
 var libExports = requireLib();
 const mammoth = /* @__PURE__ */ getDefaultExportFromCjs(libExports);
-const HTMLtoDOCX = require("html-to-docx");
-process.env.LIBGL_ALWAYS_SOFTWARE = "1";
+process.env.GDK_BACKEND = "x11";
+process.env.XDG_SESSION_TYPE = "x11";
 electron.app.disableHardwareAcceleration();
 electron.app.commandLine.appendSwitch("disable-gpu");
 electron.app.commandLine.appendSwitch("disable-software-rasterizer");
@@ -29365,6 +29365,13 @@ electron.app.commandLine.appendSwitch("disable-gpu-compositing");
 electron.app.commandLine.appendSwitch("disable-gpu-rasterization");
 electron.app.commandLine.appendSwitch("disable-gpu-sandbox");
 electron.app.commandLine.appendSwitch("no-sandbox");
+process.env.GTK_THEME = "Adwaita";
+let HTMLtoDOCX;
+try {
+  HTMLtoDOCX = require("html-to-docx");
+} catch (e) {
+  console.error("Failed to load html-to-docx:", e);
+}
 process.env.DIST = path.join(__dirname, "../dist");
 process.env.VITE_PUBLIC = electron.app.isPackaged ? process.env.DIST : path.join(__dirname, "../public");
 let win;
@@ -29383,8 +29390,10 @@ function createWindow() {
       contextIsolation: true,
       webSecurity: false,
       plugins: true
+      // REQUIRED: Enables native PDF viewer
     }
   });
+  win.setMenuBarVisibility(false);
   win.webContents.on("did-finish-load", () => {
     win?.webContents.send("main-process-message", (/* @__PURE__ */ new Date()).toLocaleString());
   });
@@ -29403,7 +29412,9 @@ const analyzeText = (prompt, rawContext, mode) => {
     const stopWords = /* @__PURE__ */ new Set(["the", "and", "for", "that", "this", "with", "you", "not", "are", "from", "but", "have", "was", "all", "can", "your", "which", "will", "one", "has", "been", "there", "they", "our", "would", "what", "so", "if", "about", "who", "get", "go", "me", "my", "is", "it", "in", "to", "of", "on", "at", "by", "an", "be", "as", "or"]);
     const freq = {};
     words.forEach((w) => {
-      if (!stopWords.has(w)) freq[w] = (freq[w] || 0) + 1;
+      if (!stopWords.has(w)) {
+        freq[w] = (freq[w] || 0) + 1;
+      }
     });
     const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]);
     const top5 = sorted.slice(0, 5);
@@ -29436,7 +29447,9 @@ const analyzeText = (prompt, rawContext, mode) => {
       const trimmed = s.trim();
       if (trimmed.length > 0 && trimmed[0] !== trimmed[0].toUpperCase()) issues++;
     });
-    if (issues > 0) return `I scanned the beginning of the document and found <b>${issues} potential capitalization issues</b>.`;
+    if (issues > 0) {
+      return `I scanned the beginning of the document and found <b>${issues} potential capitalization issues</b>.`;
+    }
     return "The text structure looks clean. No obvious capitalization errors found in the scan.";
   }
   const modelName = mode === "cloud" ? "Cloud API" : "Local AI";
@@ -29444,50 +29457,130 @@ const analyzeText = (prompt, rawContext, mode) => {
   return `[${modelName}] I received your query: "${prompt}".<br><br>I can perform ${capabilities} on this ${plainText.length}-character document. Try asking me to:<br>- "Summarize this"<br>- "Find the most used word"<br>- "Show word count"`;
 };
 electron.ipcMain.handle("dialog:openFile", async () => {
-  const { canceled, filePaths } = await electron.dialog.showOpenDialog({ properties: ["openFile"] });
+  const { canceled, filePaths } = await electron.dialog.showOpenDialog({
+    properties: ["openFile"],
+    filters: [{ name: "All Files", extensions: ["*"] }]
+  });
   if (canceled) return null;
   const filePath = filePaths[0];
-  return { path: filePath, name: path.basename(filePath), ext: path.extname(filePath).toLowerCase().replace(".", "") };
+  return {
+    path: filePath,
+    name: path.basename(filePath),
+    ext: path.extname(filePath).toLowerCase().replace(".", "")
+  };
 });
 electron.ipcMain.handle("file:readFile", async (_, filePath) => {
-  if (!filePath) return { error: "No path" };
+  if (!filePath) return { error: "No path provided" };
   const ext = path.extname(filePath).toLowerCase().replace(".", "");
+  const imageExts = ["png", "jpg", "jpeg", "webp", "gif", "svg", "bmp", "ico"];
+  const textExts = [
+    "txt",
+    "md",
+    "json",
+    "js",
+    "ts",
+    "tsx",
+    "jsx",
+    "css",
+    "html",
+    "xml",
+    "yaml",
+    "yml",
+    "ini",
+    "env",
+    "log",
+    "csv",
+    "py",
+    "java",
+    "c",
+    "cpp",
+    "h",
+    "cs",
+    "go",
+    "rs",
+    "php",
+    "rb",
+    "sh",
+    "bat",
+    "ps1",
+    "sql",
+    "gitignore",
+    "editorconfig",
+    "package",
+    "lock"
+  ];
   try {
-    if (ext === "docx") {
+    if (imageExts.includes(ext)) {
       const buffer = await fs.readFile(filePath);
-      const result = await mammoth.convertToHtml({ buffer });
-      return { content: result.value, type: "html", ext };
+      return {
+        content: `data:image/${ext === "svg" ? "svg+xml" : ext};base64,${buffer.toString("base64")}`,
+        type: "image",
+        ext
+      };
     }
     if (ext === "pdf") {
       const buffer = await fs.readFile(filePath);
-      return { content: `data:application/pdf;base64,${buffer.toString("base64")}`, type: "pdf", ext };
+      return {
+        content: `data:application/pdf;base64,${buffer.toString("base64")}`,
+        type: "pdf",
+        ext
+      };
     }
-    if (["png", "jpg", "jpeg", "webp", "svg"].includes(ext)) {
+    if (ext === "docx") {
       const buffer = await fs.readFile(filePath);
-      return { content: `data:image/${ext === "svg" ? "svg+xml" : ext};base64,${buffer.toString("base64")}`, type: "image", ext };
+      const result = await mammoth.convertToHtml({ buffer });
+      return {
+        content: result.value,
+        type: "html",
+        ext
+      };
     }
-    const content = await fs.readFile(filePath, "utf-8");
-    return { content, type: "text", ext };
-  } catch (e) {
-    return { error: String(e), type: "error", ext };
+    if (textExts.includes(ext) || ext === "") {
+      const content = await fs.readFile(filePath, "utf-8");
+      return { content, type: "text", ext };
+    }
+    try {
+      const stat = await fs.stat(filePath);
+      if (stat.size < 2 * 1024 * 1024) {
+        const raw = await fs.readFile(filePath, "utf-8");
+        if (raw.includes("\0")) {
+          return { content: "Binary content detected.", type: "binary", ext };
+        }
+        return { content: raw, type: "text", ext };
+      }
+    } catch {
+    }
+    return { content: "File too large or format not supported.", type: "binary", ext };
+  } catch (err) {
+    console.error("Read Error:", err);
+    return { error: String(err), type: "error", ext };
   }
 });
 electron.ipcMain.handle("file:saveFile", async (_, { path: filePath, content }) => {
   try {
     const ext = path.extname(filePath).toLowerCase().replace(".", "");
     if (ext === "docx") {
-      const buffer = await HTMLtoDOCX(content);
-      await fs.writeFile(filePath, buffer);
+      if (HTMLtoDOCX) {
+        const buffer = await HTMLtoDOCX(content, null, {
+          table: { row: { cantSplit: true } },
+          footer: true,
+          pageNumber: true
+        });
+        await fs.writeFile(filePath, buffer);
+      } else {
+        throw new Error("HTMLtoDOCX library not loaded");
+      }
     } else {
       await fs.writeFile(filePath, content, "utf-8");
     }
     return { success: true };
-  } catch (e) {
-    return { success: false, error: String(e) };
+  } catch (err) {
+    console.error("Save Error:", err);
+    return { success: false, error: String(err) };
   }
 });
 electron.ipcMain.handle("ai:generate", async (_, { prompt, context: context2, mode }) => {
-  await new Promise((resolve) => setTimeout(resolve, mode === "cloud" ? 1500 : 800));
+  await new Promise((resolve) => setTimeout(resolve, mode === "cloud" ? 1500 : 500));
   const response = analyzeText(prompt, context2, mode);
   return { response };
 });
