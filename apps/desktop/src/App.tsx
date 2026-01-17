@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   FileText, 
+  Image as ImageIcon, 
   Settings, 
+  X, 
   Plus, 
   Bot, 
   Save, 
   Printer, 
   Share2,
   Layers,
+  PenTool,
   ScanLine,
   Wand2,
   Languages,
@@ -28,9 +31,15 @@ import {
   Sparkles,
   Trash2,
   ArrowRight,
-  X,
-  PenTool,
-  FileType as FileTypeIcon
+  FileType as FileTypeIcon,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
+  List,
+  ListOrdered,
+  Undo,
+  Redo
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -56,6 +65,8 @@ import {
 import { PdfViewer } from './components/PdfViewer';
 import { DocxViewer } from './components/DocxViewer';
 import { SortableTab } from './components/SortableTab';
+import { HomeDashboard } from './components/HomeDashboard';
+import { SettingsModal } from './components/SettingsModal';
 
 // --- Types ---
 type ViewerMode = 'view' | 'edit';
@@ -151,6 +162,7 @@ function App() {
   const [loadingFile, setLoadingFile] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [sidebarLogoError, setSidebarLogoError] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; fileId: string } | null>(null);
@@ -351,24 +363,24 @@ function App() {
       return (
         <div className="flex items-center gap-2 h-full">
            <div className="flex items-center gap-1 pr-4 border-r border-slate-700">
-              <ToolButton icon={Wand2} label="Summarize" onClick={() => handleAiSubmit('Summarize this document')} />
-              <ToolButton icon={Languages} label="Translate" onClick={() => handleAiSubmit('Translate this document to Spanish')} />
-              <ToolButton icon={ScanLine} label="Fix Grammar" onClick={() => handleAiSubmit('Check for grammar errors in this text')} />
+              <ToolButton icon={Wand2} label="Summarize" onClick={() => handleAiSubmit('Summarize this document')} tooltip="Summarize Document" />
+              <ToolButton icon={Languages} label="Translate" onClick={() => handleAiSubmit('Translate this document to Spanish')} tooltip="Translate to Spanish" />
+              <ToolButton icon={ScanLine} label="Fix Grammar" onClick={() => handleAiSubmit('Check for grammar errors in this text')} tooltip="Check Grammar" />
            </div>
            <div className="ml-auto flex items-center gap-2">
               <span className="text-xs text-slate-400">Current Mode: <strong className={aiMode === 'cloud' ? 'text-indigo-400' : 'text-emerald-400'}>{aiMode.toUpperCase()}</strong></span>
            </div>
         </div>
-      )
+      );
     }
 
     if (activeToolGroup === 'Home') {
       return (
         <div className="flex items-center gap-2 h-full">
           <div className="flex items-center gap-1 pr-4 border-r border-slate-700">
-            <ToolButton icon={Save} label="Save" onClick={handleSaveFile} />
-            <ToolButton icon={Printer} label="Print" />
-            <ToolButton icon={Share2} label="Share" />
+            <ToolButton icon={Save} label="Save" onClick={handleSaveFile} tooltip="Save File (Ctrl+S)" />
+            <ToolButton icon={Printer} label="Print" tooltip="Print File" />
+            <ToolButton icon={Share2} label="Share" tooltip="Share File" />
           </div>
           <div className="flex items-center gap-1 pr-4 border-r border-slate-700">
               <button onClick={() => setViewerMode(prev => prev === 'view' ? 'edit' : 'view')} className={`flex flex-col items-center justify-center w-16 h-14 rounded-lg group ${viewerMode === 'edit' ? 'bg-slate-700 text-indigo-300' : 'text-slate-400 hover:bg-slate-700'}`}>
@@ -378,32 +390,55 @@ function App() {
           </div>
           {showRichText && (
             <>
+              {/* Typography Group */}
               <div className="flex flex-col gap-1 pr-4 border-r border-slate-700 px-2">
                  <div className="flex items-center gap-1">
-                    <select onChange={(e) => execCmd('fontName', e.target.value)} className="h-6 w-32 bg-slate-900 border border-slate-700 rounded text-xs text-white px-1 outline-none">
+                    <select onChange={(e) => execCmd('fontName', e.target.value)} className="h-6 w-32 bg-slate-900 border border-slate-700 rounded text-xs text-white px-1 outline-none" title="Font Family">
                       <option>Font...</option>
                       {FONTS.map(f => <option key={f} value={f}>{f}</option>)}
                     </select>
-                    <select onChange={(e) => execCmd('fontSize', e.target.value)} className="h-6 w-12 bg-slate-900 border border-slate-700 rounded text-xs text-white px-1 outline-none">
+                    <select onChange={(e) => execCmd('fontSize', e.target.value)} className="h-6 w-12 bg-slate-900 border border-slate-700 rounded text-xs text-white px-1 outline-none" title="Font Size">
                       <option>Sz</option>
                       {FONT_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                  </div>
                  <div className="flex items-center gap-0.5 justify-center">
-                    <FormatBtn icon={Bold} cmd="bold" onClick={() => execCmd('bold')} />
-                    <FormatBtn icon={Italic} cmd="italic" onClick={() => execCmd('italic')} />
-                    <FormatBtn icon={Underline} cmd="underline" onClick={() => execCmd('underline')} />
-                    <FormatBtn icon={Strikethrough} cmd="strikethrough" onClick={() => execCmd('strikethrough')} />
+                    <FormatBtn icon={Bold} cmd="bold" onClick={() => execCmd('bold')} tooltip="Bold (Ctrl+B)" />
+                    <FormatBtn icon={Italic} cmd="italic" onClick={() => execCmd('italic')} tooltip="Italic (Ctrl+I)" />
+                    <FormatBtn icon={Underline} cmd="underline" onClick={() => execCmd('underline')} tooltip="Underline (Ctrl+U)" />
+                    <FormatBtn icon={Strikethrough} cmd="strikethrough" onClick={() => execCmd('strikethrough')} tooltip="Strikethrough" />
                     <FormatBtn icon={CaseSensitive} cmd="case" onClick={changeCase} tooltip="Change Case" />
                  </div>
               </div>
+
+              {/* Alignment & Lists Group */}
+              <div className="flex items-center gap-1 px-2 border-r border-slate-700">
+                 <div className="grid grid-cols-4 gap-0.5">
+                    <FormatBtn icon={AlignLeft} cmd="justifyLeft" onClick={() => execCmd('justifyLeft')} tooltip="Align Left" />
+                    <FormatBtn icon={AlignCenter} cmd="justifyCenter" onClick={() => execCmd('justifyCenter')} tooltip="Align Center" />
+                    <FormatBtn icon={AlignRight} cmd="justifyRight" onClick={() => execCmd('justifyRight')} tooltip="Align Right" />
+                    <FormatBtn icon={AlignJustify} cmd="justifyFull" onClick={() => execCmd('justifyFull')} tooltip="Justify" />
+                    <FormatBtn icon={List} cmd="insertUnorderedList" onClick={() => execCmd('insertUnorderedList')} tooltip="Bullet List" />
+                    <FormatBtn icon={ListOrdered} cmd="insertOrderedList" onClick={() => execCmd('insertOrderedList')} tooltip="Numbered List" />
+                 </div>
+              </div>
+
+              {/* Edit Actions Group */}
+              <div className="flex items-center gap-1 px-2 border-r border-slate-700">
+                 <div className="flex gap-1">
+                   <FormatBtn icon={Undo} cmd="undo" onClick={() => execCmd('undo')} tooltip="Undo" />
+                   <FormatBtn icon={Redo} cmd="redo" onClick={() => execCmd('redo')} tooltip="Redo" />
+                 </div>
+              </div>
+
+              {/* Colors Group */}
               <div className="flex items-center gap-1 px-2 border-r border-slate-700">
                  <div className="flex flex-col items-center gap-1">
                     <div className="flex gap-1">
-                      <button className="w-8 h-6 bg-yellow-200 rounded flex items-center justify-center hover:ring-1 ring-white" onMouseDown={(e) => { e.preventDefault(); execCmd('hiliteColor', 'yellow'); }} title="Highlight">
+                      <button className="w-8 h-6 bg-yellow-200 rounded flex items-center justify-center hover:ring-1 ring-white" onMouseDown={(e) => { e.preventDefault(); execCmd('hiliteColor', 'yellow'); }} title="Highlight Color">
                         <Highlighter size={14} className="text-slate-900" />
                       </button>
-                      <button className="w-8 h-6 bg-slate-700 rounded flex items-center justify-center hover:bg-slate-600 border-b-4 border-red-500" onMouseDown={(e) => { e.preventDefault(); execCmd('foreColor', 'red'); }} title="Text Color">
+                      <button className="w-8 h-6 bg-slate-700 rounded flex items-center justify-center hover:bg-slate-600 border-b-4 border-red-500" onMouseDown={(e) => { e.preventDefault(); execCmd('foreColor', 'red'); }} title="Font Color">
                         <Baseline size={14} className="text-white" />
                       </button>
                     </div>
@@ -460,7 +495,7 @@ function App() {
             <SidebarBtn icon={Layers} active={activeToolGroup === 'Merge'} onClick={() => setActiveToolGroup('Merge')} />
             <SidebarBtn icon={Bot} active={activeToolGroup === 'AI Assistant'} onClick={() => setActiveToolGroup('AI Assistant')} />
             <div className="h-px w-8 bg-slate-800 mx-auto"></div>
-            <SidebarBtn icon={Settings} active={activeToolGroup === 'Settings'} onClick={() => setActiveToolGroup('Settings')} />
+            <SidebarBtn icon={Settings} active={activeToolGroup === 'Settings'} onClick={() => { setIsSettingsOpen(true); setActiveToolGroup('Settings'); }} />
           </nav>
         </div>
 
@@ -469,29 +504,33 @@ function App() {
           
           {/* Top Bar (Tabs with DnD) */}
           <div className="h-10 bg-slate-950 flex items-end px-2 gap-1 border-b border-slate-800 pt-1 drag-region overflow-x-auto no-scrollbar">
-            <DndContext 
-              sensors={sensors} 
-              collisionDetection={closestCenter} 
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext 
-                items={openFiles.map(f => f.id)}
-                strategy={horizontalListSortingStrategy}
+            {openFiles.length > 0 ? (
+              <DndContext 
+                sensors={sensors} 
+                collisionDetection={closestCenter} 
+                onDragEnd={handleDragEnd}
               >
-                {openFiles.map(file => (
-                  <SortableTab 
-                    key={file.id} 
-                    file={file} 
-                    isActive={activeTabId === file.id}
-                    onActivate={() => { setActiveTabId(file.id); setCurrentPage(1); }}
-                    onClose={(e) => closeTab(e, file.id)}
-                    onContextMenu={(e) => handleContextMenu(e, file.id)}
-                  />
-                ))}
-              </SortableContext>
-            </DndContext>
+                <SortableContext 
+                  items={openFiles.map(f => f.id)}
+                  strategy={horizontalListSortingStrategy}
+                >
+                  {openFiles.map(file => (
+                    <SortableTab 
+                      key={file.id} 
+                      file={file} 
+                      isActive={activeTabId === file.id}
+                      onActivate={() => { setActiveTabId(file.id); setCurrentPage(1); }}
+                      onClose={(e) => closeTab(e, file.id)}
+                      onContextMenu={(e) => handleContextMenu(e, file.id)}
+                    />
+                  ))}
+                </SortableContext>
+              </DndContext>
+            ) : (
+               <div className="flex-1"></div> // Spacer when no tabs
+            )}
             
-            <button onClick={handleOpenFile} className="p-2 text-slate-500 hover:text-indigo-400 transition-colors shrink-0"><Plus size={16} /></button>
+            <button onClick={handleOpenFile} className="p-2 text-slate-500 hover:text-indigo-400 transition-colors shrink-0" title="Open File"><Plus size={16} /></button>
           </div>
 
           {/* Context Menu */}
@@ -539,97 +578,94 @@ function App() {
 
           {/* Workspace */}
           <div className="flex-1 bg-slate-900 relative flex overflow-hidden">
-            <div className="flex-1 p-8 flex justify-center items-start bg-[radial-gradient(#1e293b_1px,transparent_1px)] bg-size-[16px_16px] overflow-auto">
-              
-              {isLoading ? (
-                <div className="flex flex-col items-center justify-center mt-32 text-indigo-400 animate-in fade-in duration-300">
-                  <div className="relative">
-                    <Loader2 size={48} className="animate-spin mb-4" />
-                    <div className="absolute inset-0 bg-indigo-500/20 blur-xl rounded-full"></div>
+            {openFiles.length === 0 ? (
+               <HomeDashboard onOpenFile={handleOpenFile} onOpenSettings={() => setIsSettingsOpen(true)} />
+            ) : (
+              <div className="flex-1 p-8 flex justify-center items-start bg-[radial-gradient(#1e293b_1px,transparent_1px)] bg-size-[16px_16px] overflow-auto w-full h-full">
+                
+                {isLoading ? (
+                  <div className="flex flex-col items-center justify-center mt-32 text-indigo-400 animate-in fade-in duration-300">
+                    <div className="relative">
+                      <Loader2 size={48} className="animate-spin mb-4" />
+                      <div className="absolute inset-0 bg-indigo-500/20 blur-xl rounded-full"></div>
+                    </div>
+                    <p className="text-slate-300 font-medium">Processing {loadingFile || 'file'}...</p>
+                    <p className="text-slate-500 text-xs mt-2">Analyzing content & preparing view</p>
                   </div>
-                  <p className="text-slate-300 font-medium">Processing {loadingFile || 'file'}...</p>
-                  <p className="text-slate-500 text-xs mt-2">Analyzing content & preparing view</p>
-                </div>
-              ) : activeFile ? (
-                <div className={`w-full max-w-5xl bg-white min-h-[800px] shadow-2xl rounded-sm text-slate-800 animate-in fade-in zoom-in-95 duration-300 overflow-hidden flex flex-col ${viewerMode === 'edit' ? 'ring-4 ring-indigo-500/20' : ''}`}>
-                   
-                   <div className="px-12 py-8 border-b border-slate-100 bg-white flex justify-between items-start">
-                     <div>
-                       <h1 className="text-3xl font-bold text-slate-900">{activeFile.name}</h1>
-                       <div className="flex items-center gap-2 mt-2">
-                         <span className="text-xs text-slate-400 uppercase tracking-wider font-bold">{activeFile.ext} • {viewerMode.toUpperCase()}</span>
-                         {activeFile.content !== activeFile.lastSavedContent && (
-                           <span className="text-xs text-indigo-500 font-medium bg-indigo-50 px-2 py-0.5 rounded">Unsaved Changes</span>
-                         )}
-                       </div>
-                     </div>
-                     {activeFile.type === 'text' && textPagination && (
-                        <div className="text-right">
-                          <p className="text-2xl font-bold text-slate-200">{textPagination.count.toLocaleString()}</p>
-                          <p className="text-xs text-slate-400 uppercase tracking-wider">Lines</p>
-                        </div>
-                     )}
-                   </div>
-                   
-                   <div className="flex-1 bg-white relative">
-                      {/* Viewers */}
-                      {activeFile.type === 'image' && (
-                        <div className="flex items-center justify-center p-8 bg-slate-50 h-full min-h-[600px]">
-                           <img src={activeFile.content} alt={activeFile.name} className="max-w-full max-h-full object-contain shadow-md rounded" />
-                        </div>
-                      )}
-                      {activeFile.type === 'pdf' && <PdfViewer content={activeFile.content} />}
-                      {activeFile.type === 'html' && (
-                        <DocxViewer 
-                          content={activeFile.content} 
-                          isEditable={viewerMode === 'edit'}
-                          onUpdate={updateFileContent} 
-                        />
-                      )}
-                      {activeFile.type === 'text' && (
-                        <div className="flex flex-col h-full">
-                          <div className="flex-1 relative min-h-[600px]">
-                            {viewerMode === 'edit' ? (
-                              <textarea 
-                                className="w-full h-full p-12 font-mono text-sm leading-relaxed focus:outline-none resize-none text-slate-800 bg-white"
-                                value={activeFile.content}
-                                onChange={(e) => updateFileContent(e.target.value)}
-                                spellCheck={false}
-                              />
-                            ) : (
-                              <pre className="w-full h-full p-12 font-mono text-sm leading-relaxed whitespace-pre-wrap overflow-auto text-slate-700 bg-white">
-                                {currentPageContent || "File is empty."}
-                              </pre>
-                            )}
-                          </div>
-                          {viewerMode === 'view' && textPagination && textPagination.totalPages > 1 && (
-                             <div className="bg-slate-50 border-t border-slate-200 px-6 py-3 flex justify-between items-center sticky bottom-0">
-                                <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 1} className="flex items-center gap-1 text-slate-600 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-slate-600 text-sm font-medium transition-colors"><ChevronLeft size={16} /> Prev</button>
-                                <span className="text-xs font-mono text-slate-400">Page <span className="text-slate-700 font-bold">{currentPage}</span> of {textPagination.totalPages}</span>
-                                <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage === textPagination.totalPages} className="flex items-center gap-1 text-slate-600 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-slate-600 text-sm font-medium transition-colors">Next <ChevronRight size={16} /></button>
-                             </div>
+                ) : activeFile ? (
+                  <div className={`w-full max-w-5xl bg-white min-h-[800px] shadow-2xl rounded-sm text-slate-800 animate-in fade-in zoom-in-95 duration-300 overflow-hidden flex flex-col ${viewerMode === 'edit' ? 'ring-4 ring-indigo-500/20' : ''}`}>
+                    
+                    <div className="px-12 py-8 border-b border-slate-100 bg-white flex justify-between items-start">
+                      <div>
+                        <h1 className="text-3xl font-bold text-slate-900">{activeFile.name}</h1>
+                        <div className="flex items-center gap-2 mt-2">
+                          <span className="text-xs text-slate-400 uppercase tracking-wider font-bold">{activeFile.ext} • {viewerMode.toUpperCase()}</span>
+                          {activeFile.content !== activeFile.lastSavedContent && (
+                            <span className="text-xs text-indigo-500 font-medium bg-indigo-50 px-2 py-0.5 rounded">Unsaved Changes</span>
                           )}
                         </div>
+                      </div>
+                      {activeFile.type === 'text' && textPagination && (
+                          <div className="text-right">
+                            <p className="text-2xl font-bold text-slate-200">{textPagination.count.toLocaleString()}</p>
+                            <p className="text-xs text-slate-400 uppercase tracking-wider">Lines</p>
+                          </div>
                       )}
-                      {/* Fallback */}
-                      {(activeFile.type === 'binary' || activeFile.type === 'unknown' || activeFile.type === 'error') && (
-                        <div className="flex flex-col items-center justify-center h-[600px] text-slate-400">
-                           <FileTypeIcon size={64} className="mb-4 opacity-20" />
-                           <p className="text-lg font-medium text-slate-600">Preview unavailable</p>
-                           <p className="text-sm mt-2">This file type is binary or not supported for direct viewing.</p>
-                        </div>
-                      )}
-                   </div>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center mt-32 opacity-50">
-                   <div className="w-24 h-24 bg-slate-800 rounded-3xl flex items-center justify-center mb-6">
-                      <Plus size={40} className="text-slate-600" />
-                   </div>
-                   <p className="text-slate-500 text-lg">Open a file to begin</p>
-                </div>
-              )}
-            </div>
+                    </div>
+                    
+                    <div className="flex-1 bg-white relative">
+                        {/* Viewers */}
+                        {activeFile.type === 'image' && (
+                          <div className="flex items-center justify-center p-8 bg-slate-50 h-full min-h-[600px]">
+                            <img src={activeFile.content} alt={activeFile.name} className="max-w-full max-h-full object-contain shadow-md rounded" />
+                          </div>
+                        )}
+                        {activeFile.type === 'pdf' && <PdfViewer content={activeFile.content} />}
+                        {activeFile.type === 'html' && (
+                          <DocxViewer 
+                            content={activeFile.content} 
+                            isEditable={viewerMode === 'edit'}
+                            onUpdate={updateFileContent} 
+                          />
+                        )}
+                        {activeFile.type === 'text' && (
+                          <div className="flex flex-col h-full">
+                            <div className="flex-1 relative min-h-[600px]">
+                              {viewerMode === 'edit' ? (
+                                <textarea 
+                                  className="w-full h-full p-12 font-mono text-sm leading-relaxed focus:outline-none resize-none text-slate-800 bg-white"
+                                  value={activeFile.content}
+                                  onChange={(e) => updateFileContent(e.target.value)}
+                                  spellCheck={false}
+                                />
+                              ) : (
+                                <pre className="w-full h-full p-12 font-mono text-sm leading-relaxed whitespace-pre-wrap overflow-auto text-slate-700 bg-white">
+                                  {currentPageContent || "File is empty."}
+                                </pre>
+                              )}
+                            </div>
+                            {viewerMode === 'view' && textPagination && textPagination.totalPages > 1 && (
+                              <div className="bg-slate-50 border-t border-slate-200 px-6 py-3 flex justify-between items-center sticky bottom-0">
+                                  <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 1} className="flex items-center gap-1 text-slate-600 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-slate-600 text-sm font-medium transition-colors"><ChevronLeft size={16} /> Prev</button>
+                                  <span className="text-xs font-mono text-slate-400">Page <span className="text-slate-700 font-bold">{currentPage}</span> of {textPagination.totalPages}</span>
+                                  <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage === textPagination.totalPages} className="flex items-center gap-1 text-slate-600 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-slate-600 text-sm font-medium transition-colors">Next <ChevronRight size={16} /></button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {/* Fallback */}
+                        {(activeFile.type === 'binary' || activeFile.type === 'unknown' || activeFile.type === 'error') && (
+                          <div className="flex flex-col items-center justify-center h-[600px] text-slate-400">
+                            <FileTypeIcon size={64} className="mb-4 opacity-20" />
+                            <p className="text-lg font-medium text-slate-600">Preview unavailable</p>
+                            <p className="text-sm mt-2">This file type is binary or not supported for direct viewing.</p>
+                          </div>
+                        )}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
 
             {/* AI Panel */}
             {isAiPanelOpen && (
@@ -704,6 +740,9 @@ function App() {
           </div>
         </div>
       </div>
+      
+      {/* Settings Modal */}
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
     </>
   );
 }
@@ -714,8 +753,8 @@ const SidebarBtn = ({ icon: Icon, active, onClick }: { icon: LucideIcon, active?
   </button>
 );
 
-const ToolButton = ({ icon: Icon, label, highlight, onClick }: { icon: LucideIcon, label: string, highlight?: boolean, onClick?: () => void }) => (
-  <button onClick={onClick} className={`flex flex-col items-center justify-center w-16 h-14 rounded-lg group ${highlight ? 'text-indigo-300 hover:bg-slate-700' : 'text-slate-400 hover:bg-slate-700'}`}>
+const ToolButton = ({ icon: Icon, label, highlight, onClick, tooltip }: { icon: LucideIcon, label: string, highlight?: boolean, onClick?: () => void, tooltip?: string }) => (
+  <button onClick={onClick} className={`flex flex-col items-center justify-center w-16 h-14 rounded-lg group ${highlight ? 'text-indigo-300 hover:bg-slate-700' : 'text-slate-400 hover:bg-slate-700'}`} title={tooltip || label}>
     <Icon size={20} className="mb-1" />
     <span className="text-[10px] font-medium">{label}</span>
   </button>
