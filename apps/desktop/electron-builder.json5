@@ -1,0 +1,24 @@
+{
+  "appId": "com.chizalabs.omnis",
+  "productName": "Omnis",
+  "directories": {
+    "output": "release/${version}"
+  },
+  "files": [
+    "dist",
+    "dist-electron",
+    "package.json"
+  ],
+  "linux": {
+    "target": ["AppImage", "deb"],
+    "category": "Office",
+    "icon": "public/logo.png" 
+  },
+  "win": {
+    "target": "nsis",
+    "icon": "public/logo.png"
+  },
+  "mac": {
+    "target": "dmg"
+  }
+}
