@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   FileText, 
   Settings, 
+  X, 
   Plus, 
   Bot, 
   Save, 
@@ -37,9 +38,7 @@ import {
   List,
   ListOrdered,
   Undo,
-  Redo,
-  Image as ImageIcon, // Added back since it's used in FileIconType
-  X
+  Redo
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -51,8 +50,8 @@ import {
   PointerSensor, 
   useSensor, 
   useSensors, 
+  type DragEndEvent 
 } from '@dnd-kit/core';
-import type { DragEndEvent } from '@dnd-kit/core';
 
 import { 
   arrayMove, 
@@ -164,6 +163,9 @@ function App() {
   const [sidebarLogoError, setSidebarLogoError] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
+  // Update Notification State
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; fileId: string } | null>(null);
 
@@ -190,6 +192,18 @@ function App() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatHistory, isAiPanelOpen]);
+
+  // Listen for Update Signals from Backend
+  useEffect(() => {
+    // @ts-ignore
+    if (window.ipcRenderer) {
+      // @ts-ignore
+      window.ipcRenderer.on('update-available', (event, info) => {
+        console.log("Update available:", info);
+        setUpdateAvailable(true);
+      });
+    }
+  }, []);
 
   // Pagination
   const textPagination = useMemo(() => {
@@ -523,11 +537,15 @@ function App() {
         
         {/* Sidebar */}
         <div className="w-20 bg-slate-950 flex flex-col items-center py-4 border-r border-slate-800 z-20 shadow-xl">
-           <div className="mb-8 w-10 h-10 flex items-center justify-center">
+           <div className="mb-8 w-10 h-10 flex items-center justify-center relative">
              {!sidebarLogoError ? (
                <img src="/logo.png" alt="O" className="w-full h-full object-contain drop-shadow-lg" onError={() => setSidebarLogoError(true)} />
              ) : (
                <div className="w-10 h-10 bg-linear-to-br from-indigo-600 to-violet-600 rounded-xl flex items-center justify-center font-bold text-xl shadow-lg shadow-indigo-500/20 text-white">O</div>
+             )}
+             {/* Notification Dot for Updates */}
+             {updateAvailable && (
+               <div className="absolute top-0 right-0 w-3 h-3 bg-red-500 border-2 border-slate-950 rounded-full animate-bounce"></div>
              )}
           </div>
           <nav className="flex flex-col gap-6 w-full items-center">
@@ -591,7 +609,7 @@ function App() {
             </div>
           )}
 
-          {/* Toolbar */}
+          {/* Toolbar - Only visible if files are open */}
           {openFiles.length > 0 && (
             <div className="h-28 bg-slate-800 border-b border-slate-700 shadow-lg flex flex-col z-10">
                 <div className="flex px-4 text-xs font-medium gap-6 pt-2 text-slate-400 border-b border-slate-700/50">
@@ -787,7 +805,11 @@ function App() {
       </div>
       
       {/* Settings Modal */}
-      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      <SettingsModal 
+        isOpen={isSettingsOpen} 
+        onClose={() => setIsSettingsOpen(false)} 
+        updateAvailable={updateAvailable} 
+      />
     </>
   );
 }
