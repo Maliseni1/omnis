@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   FileText, 
-  Image as ImageIcon, 
   Settings, 
-  X, 
   Plus, 
   Bot, 
   Save, 
@@ -39,7 +37,9 @@ import {
   List,
   ListOrdered,
   Undo,
-  Redo
+  Redo,
+  Image as ImageIcon, // Added back since it's used in FileIconType
+  X
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -277,6 +277,40 @@ function App() {
     }
   };
 
+  // --- File Actions ---
+
+  const handleCreateFile = (type: 'docx' | 'pdf') => {
+    const newFileId = crypto.randomUUID();
+    let newFile: OpenFile;
+
+    if (type === 'docx') {
+      newFile = {
+        id: newFileId,
+        name: 'Untitled.docx',
+        type: 'html', // We view/edit DOCX as HTML
+        ext: 'docx',
+        content: '<p>Start typing your new document here...</p>', // Blank HTML structure
+        path: '', // Empty path indicates it hasn't been saved yet
+        lastSavedContent: '' 
+      };
+    } else {
+      // PDF creation is placeholder for now
+      newFile = {
+        id: newFileId,
+        name: 'Untitled.pdf',
+        type: 'pdf',
+        ext: 'pdf',
+        content: '', // Empty PDF content
+        path: '',
+        lastSavedContent: ''
+      };
+    }
+
+    setOpenFiles(prev => [...prev, newFile]);
+    setActiveTabId(newFile.id);
+    setViewerMode('edit');
+  };
+
   const handleOpenFile = async () => {
     try {
       const selection = (await window.ipcRenderer.invoke('dialog:openFile')) as DialogSelection | null;
@@ -314,6 +348,13 @@ function App() {
     if (!activeFile) return;
     setIsLoading(true);
     try {
+      // If path is empty, we technically need "Save As" (but for MVP we just log warning or fail gracefully)
+      if (!activeFile.path) {
+        console.warn("Save As not implemented yet for new files.");
+        setIsLoading(false);
+        return;
+      }
+
       const result = (await window.ipcRenderer.invoke('file:saveFile', { path: activeFile.path, content: activeFile.content })) as SaveResult;
       if (result.success) {
         setOpenFiles(prev => prev.map(f => f.id === activeFile.id ? { ...f, lastSavedContent: f.content } : f));
@@ -503,35 +544,33 @@ function App() {
         <div className="flex-1 flex flex-col min-w-0">
           
           {/* Top Bar (Tabs with DnD) */}
-          <div className="h-10 bg-slate-950 flex items-end px-2 gap-1 border-b border-slate-800 pt-1 drag-region overflow-x-auto no-scrollbar">
-            {openFiles.length > 0 ? (
-              <DndContext 
+          {openFiles.length > 0 && (
+            <div className="h-10 bg-slate-950 flex items-end px-2 gap-1 border-b border-slate-800 pt-1 drag-region overflow-x-auto no-scrollbar">
+                <DndContext 
                 sensors={sensors} 
                 collisionDetection={closestCenter} 
                 onDragEnd={handleDragEnd}
-              >
-                <SortableContext 
-                  items={openFiles.map(f => f.id)}
-                  strategy={horizontalListSortingStrategy}
                 >
-                  {openFiles.map(file => (
+                <SortableContext 
+                    items={openFiles.map(f => f.id)}
+                    strategy={horizontalListSortingStrategy}
+                >
+                    {openFiles.map(file => (
                     <SortableTab 
-                      key={file.id} 
-                      file={file} 
-                      isActive={activeTabId === file.id}
-                      onActivate={() => { setActiveTabId(file.id); setCurrentPage(1); }}
-                      onClose={(e) => closeTab(e, file.id)}
-                      onContextMenu={(e) => handleContextMenu(e, file.id)}
+                        key={file.id} 
+                        file={file} 
+                        isActive={activeTabId === file.id}
+                        onActivate={() => { setActiveTabId(file.id); setCurrentPage(1); }}
+                        onClose={(e) => closeTab(e, file.id)}
+                        onContextMenu={(e) => handleContextMenu(e, file.id)}
                     />
-                  ))}
+                    ))}
                 </SortableContext>
-              </DndContext>
-            ) : (
-               <div className="flex-1"></div> // Spacer when no tabs
-            )}
-            
-            <button onClick={handleOpenFile} className="p-2 text-slate-500 hover:text-indigo-400 transition-colors shrink-0" title="Open File"><Plus size={16} /></button>
-          </div>
+                </DndContext>
+                
+                <button onClick={handleOpenFile} className="p-2 text-slate-500 hover:text-indigo-400 transition-colors shrink-0" title="Open File"><Plus size={16} /></button>
+            </div>
+          )}
 
           {/* Context Menu */}
           {contextMenu && (
@@ -553,33 +592,39 @@ function App() {
           )}
 
           {/* Toolbar */}
-          <div className="h-28 bg-slate-800 border-b border-slate-700 shadow-lg flex flex-col z-10">
-            <div className="flex px-4 text-xs font-medium gap-6 pt-2 text-slate-400 border-b border-slate-700/50">
-              {['Home', 'Edit', 'View', 'AI Assistant', 'Convert'].map(group => (
-                <button 
-                  key={group} 
-                  onClick={() => setActiveToolGroup(group)} 
-                  className={`pb-2 border-b-2 transition-all ${activeToolGroup === group ? 'text-white border-indigo-500' : 'border-transparent hover:text-slate-200'}`}
-                >
-                  {group}
-                </button>
-              ))}
+          {openFiles.length > 0 && (
+            <div className="h-28 bg-slate-800 border-b border-slate-700 shadow-lg flex flex-col z-10">
+                <div className="flex px-4 text-xs font-medium gap-6 pt-2 text-slate-400 border-b border-slate-700/50">
+                {['Home', 'Edit', 'View', 'AI Assistant', 'Convert'].map(group => (
+                    <button 
+                    key={group} 
+                    onClick={() => setActiveToolGroup(group)} 
+                    className={`pb-2 border-b-2 transition-all ${activeToolGroup === group ? 'text-white border-indigo-500' : 'border-transparent hover:text-slate-200'}`}
+                    >
+                    {group}
+                    </button>
+                ))}
+                </div>
+                <div className="flex-1 flex items-center px-4 gap-2 overflow-x-auto no-scrollbar">
+                {renderToolbar()}
+                <div className="ml-auto flex items-center">
+                    <button onClick={() => setIsAiPanelOpen(!isAiPanelOpen)} className={`flex flex-col items-center justify-center w-16 h-14 rounded-xl border ${isAiPanelOpen ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-transparent hover:bg-slate-700 text-slate-300'}`}>
+                    <Bot size={20} />
+                    <span className="text-[10px] mt-1 font-medium">AI</span>
+                    </button>
+                </div>
+                </div>
             </div>
-            <div className="flex-1 flex items-center px-4 gap-2 overflow-x-auto no-scrollbar">
-              {renderToolbar()}
-              <div className="ml-auto flex items-center">
-                 <button onClick={() => setIsAiPanelOpen(!isAiPanelOpen)} className={`flex flex-col items-center justify-center w-16 h-14 rounded-xl border ${isAiPanelOpen ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-transparent hover:bg-slate-700 text-slate-300'}`}>
-                  <Bot size={20} />
-                  <span className="text-[10px] mt-1 font-medium">AI</span>
-                </button>
-              </div>
-            </div>
-          </div>
+          )}
 
           {/* Workspace */}
           <div className="flex-1 bg-slate-900 relative flex overflow-hidden">
             {openFiles.length === 0 ? (
-               <HomeDashboard onOpenFile={handleOpenFile} onOpenSettings={() => setIsSettingsOpen(true)} />
+               <HomeDashboard 
+                  onOpenFile={handleOpenFile} 
+                  onOpenSettings={() => setIsSettingsOpen(true)} 
+                  onCreateFile={handleCreateFile}
+               />
             ) : (
               <div className="flex-1 p-8 flex justify-center items-start bg-[radial-gradient(#1e293b_1px,transparent_1px)] bg-size-[16px_16px] overflow-auto w-full h-full">
                 

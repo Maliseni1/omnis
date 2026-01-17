@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   FileText, 
   Image as ImageIcon, 
@@ -8,17 +8,26 @@ import {
   Clock, 
   FileType,
   FileSpreadsheet,
-  Presentation // Fixed: Changed from FilePresentation
+  Presentation,
+  X
 } from 'lucide-react';
 
 interface HomeDashboardProps {
   onOpenFile: () => void;
   onOpenSettings: () => void;
+  onCreateFile: (type: 'docx' | 'pdf') => void;
 }
 
-export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onOpenFile, onOpenSettings }) => {
+export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onOpenFile, onOpenSettings, onCreateFile }) => {
+  const [isNewDocModalOpen, setIsNewDocModalOpen] = useState(false);
+
+  const handleCreate = (type: 'docx' | 'pdf') => {
+    onCreateFile(type);
+    setIsNewDocModalOpen(false);
+  };
+
   return (
-    <div className="flex-1 bg-slate-900 h-full flex flex-col overflow-hidden text-slate-100 p-8 md:p-12 animate-in fade-in duration-500">
+    <div className="flex-1 bg-slate-900 h-full flex flex-col overflow-hidden text-slate-100 p-8 md:p-12 relative">
       
       {/* Header */}
       <div className="mb-12">
@@ -46,10 +55,10 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onOpenFile, onOpen
               </button>
 
               <button 
-                className="group flex flex-col items-center justify-center p-8 bg-slate-800/50 border border-slate-700 rounded-2xl opacity-60 cursor-not-allowed"
-                title="Creation features coming soon"
+                onClick={() => setIsNewDocModalOpen(true)}
+                className="group flex flex-col items-center justify-center p-8 bg-slate-800/50 hover:bg-slate-800 border border-slate-700 hover:border-emerald-500/50 rounded-2xl transition-all duration-200"
               >
-                <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mb-4">
+                <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                   <FilePlus size={32} className="text-emerald-400" />
                 </div>
                 <span className="text-lg font-medium">New Document</span>
@@ -93,6 +102,49 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onOpenFile, onOpen
         </div>
 
       </div>
+
+      {/* New Document Modal */}
+      {isNewDocModalOpen && (
+        <div className="absolute inset-0 z-50 bg-slate-900/95 backdrop-blur-sm flex items-center justify-center p-4">
+           <div className="w-full max-w-4xl bg-slate-800 border border-slate-700 rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+              <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-800">
+                 <h2 className="text-xl font-semibold flex items-center gap-2">
+                   <FilePlus className="text-emerald-400" /> Create New
+                 </h2>
+                 <button onClick={() => setIsNewDocModalOpen(false)} className="p-2 hover:bg-slate-700 rounded-full transition-colors">
+                   <X size={20} />
+                 </button>
+              </div>
+              
+              <div className="p-8 grid grid-cols-2 md:grid-cols-3 gap-4 overflow-y-auto">
+                 {/* Actionable */}
+                 <NewDocOption 
+                    icon={FileText} 
+                    label="Omnis Word" 
+                    desc="Rich Text Document (.docx)" 
+                    color="blue" 
+                    onClick={() => handleCreate('docx')} 
+                 />
+                 
+                 {/* Coming Soon / Disabled */}
+                 <NewDocOption 
+                    icon={FileType} 
+                    label="Omnis PDF" 
+                    desc="Portable Document Format (.pdf)" 
+                    color="rose" 
+                    disabled 
+                 />
+                 <NewDocOption icon={FileSpreadsheet} label="Omnis SpreadSheets" desc="Data & Charts" color="green" disabled />
+                 <NewDocOption icon={Presentation} label="Omnis Presentations" desc="Slides & Visuals" color="orange" disabled />
+                 <NewDocOption icon={FileText} label="Omnis Notes" desc="Plain Text (.txt)" color="slate" disabled />
+              </div>
+              
+              <div className="p-4 bg-slate-900/50 border-t border-slate-700 text-center text-xs text-slate-500">
+                 Select a file type to create a blank document.
+              </div>
+           </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -106,3 +158,42 @@ const FileCard = ({ icon: Icon, label, active, badge }: { icon: any, label: stri
     <span className="text-xs font-medium">{label}</span>
   </div>
 );
+
+const NewDocOption = ({ icon: Icon, label, desc, color, disabled, onClick }: { icon: any, label: string, desc: string, color: string, disabled?: boolean, onClick?: () => void }) => {
+  const colorMap: Record<string, string> = {
+    blue: 'text-blue-400 group-hover:bg-blue-400/10 group-hover:border-blue-400/50',
+    rose: 'text-rose-400 group-hover:bg-rose-400/10 group-hover:border-rose-400/50',
+    green: 'text-emerald-400 group-hover:bg-emerald-400/10 group-hover:border-emerald-400/50',
+    orange: 'text-orange-400 group-hover:bg-orange-400/10 group-hover:border-orange-400/50',
+    slate: 'text-slate-400 group-hover:bg-slate-400/10 group-hover:border-slate-400/50',
+  };
+
+  // Safe access to color map
+  const colorClass = colorMap[color] || colorMap['slate'];
+  const iconColor = disabled ? 'text-slate-600' : colorClass.split(' ')[0];
+
+  return (
+    <button 
+      onClick={onClick}
+      disabled={disabled}
+      className={`group relative text-left p-6 rounded-2xl border bg-slate-800/50 transition-all duration-300
+        ${disabled 
+          ? 'border-slate-800 opacity-50 cursor-not-allowed' 
+          : `border-slate-700 hover:scale-[1.02] cursor-pointer ${colorClass}`
+        }
+      `}
+    >
+      <div className={`w-12 h-12 rounded-full bg-slate-900 flex items-center justify-center mb-4 ${iconColor}`}>
+        <Icon size={24} />
+      </div>
+      <h3 className="font-semibold text-slate-200">{label}</h3>
+      <p className="text-xs text-slate-500 mt-1">{desc}</p>
+      
+      {disabled && (
+        <span className="absolute top-4 right-4 text-[10px] font-bold uppercase tracking-wider bg-slate-900 text-slate-500 px-2 py-1 rounded-full border border-slate-700">
+          Soon
+        </span>
+      )}
+    </button>
+  );
+};
