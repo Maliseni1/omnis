@@ -1,21 +1,21 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import mammoth from 'mammoth'
 const HTMLtoDOCX = require('html-to-docx')
 
-// --- CONFIGURATION ---
-const GITHUB_REPO = "Maliseni1/omnis"; // GitHub repo for update checks
-const APP_VERSION = app.getVersion(); // Reads version from package.json
+// --- CRITICAL LINUX STABILITY FIXES ---
+// 1. Force Software Rendering (Bypasses libva/MESA-INTEL errors)
+app.disableHardwareAcceleration()
 
-// --- LINUX/UBUNTU STABILITY OVERRIDES ---
-app.disableHardwareAcceleration();
-app.commandLine.appendSwitch('disable-gpu');
-app.commandLine.appendSwitch('disable-software-rasterizer');
-app.commandLine.appendSwitch('disable-gpu-compositing');
-app.commandLine.appendSwitch('disable-gpu-rasterization');
-app.commandLine.appendSwitch('disable-gpu-sandbox');
-app.commandLine.appendSwitch('no-sandbox');
+// 2. Disable Sandbox and GPU features that often crash on Ubuntu/WSL
+app.commandLine.appendSwitch('no-sandbox')
+app.commandLine.appendSwitch('disable-gpu')
+app.commandLine.appendSwitch('disable-software-rasterizer')
+app.commandLine.appendSwitch('disable-gpu-compositing')
+app.commandLine.appendSwitch('disable-gpu-rasterization')
+app.commandLine.appendSwitch('disable-gpu-sandbox')
+app.commandLine.appendSwitch('--no-zygote')
 
 process.env.DIST = path.join(__dirname, '../dist')
 process.env.VITE_PUBLIC = app.isPackaged ? process.env.DIST : path.join(__dirname, '../public')
@@ -35,17 +35,16 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: false,
-      plugins: true 
+      webSecurity: false, // Helps with loading local resources
+      plugins: true // REQUIRED: Enables the native PDF viewer (iframe)
     },
   })
 
+  // Hide the menu bar
   win.setMenuBarVisibility(false);
 
   win.webContents.on('did-finish-load', () => {
     win?.webContents.send('main-process-message', (new Date).toLocaleString())
-    // Trigger automatic update check on load
-    checkUpdatesAndNotify(win!);
   })
 
   if (VITE_DEV_SERVER_URL) {
@@ -55,59 +54,37 @@ function createWindow() {
   }
 }
 
-// --- UPDATE CHECKER LOGIC ---
-const checkUpdatesAndNotify = async (window: BrowserWindow) => {
-  const result = await performUpdateCheck();
-  if (result.update) {
-    window.webContents.send('update-available', result);
-  }
-};
-
-const performUpdateCheck = async () => {
-  try {
-    // 1. Fetch latest release from GitHub API
-    const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
-      headers: { 'User-Agent': 'Omnis-Desktop-App' }
-    });
-    
-    if (!response.ok) throw new Error('Repo not found or private');
-    
-    const data: any = await response.json();
-    const latestTag = data.tag_name || 'v0.0.0';
-    const latestVersion = latestTag.replace(/^v/, '');
-    
-    // 2. Compare versions (Simple string compare for now, ideally use semver)
-    const isUpdate = latestVersion !== APP_VERSION && latestVersion > APP_VERSION;
-
-    return { 
-      update: isUpdate, 
-      current: APP_VERSION, 
-      latest: latestVersion, 
-      url: data.html_url,
-      releaseNotes: data.body
-    };
-  } catch (error: any) {
-    console.error("Update check failed:", error);
-    return { update: false, current: APP_VERSION, error: error.message };
-  }
-};
-
-// --- HELPER: Analysis Logic ---
+// --- HELPER: Analysis Logic (Shared) ---
 const analyzeText = (prompt: string, rawContext: string, mode: 'local' | 'cloud'): string => {
-  // ... (Keep existing AI logic as is)
   const p = prompt.toLowerCase();
   const plainText = rawContext.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+  const textLower = plainText.toLowerCase();
+
+  // Logic: Word Frequency
+  if (p.includes('most used') || p.includes('frequency') || p.includes('common word')) {
+    const words = textLower.match(/\b[a-z]{3,}\b/g) || [];
+    const stopWords = new Set(['the', 'and', 'for', 'that', 'this', 'with', 'you', 'not', 'are', 'from', 'but', 'have', 'was', 'all', 'can', 'your', 'which', 'will', 'one', 'has', 'been', 'there', 'they', 'our', 'would', 'what', 'so', 'if', 'about', 'who', 'get', 'go', 'me', 'my', 'is', 'it', 'in', 'to', 'of', 'on', 'at', 'by', 'an', 'be', 'as', 'or']);
+    
+    const freq: Record<string, number> = {};
+    words.forEach(w => { if (!stopWords.has(w)) freq[w] = (freq[w] || 0) + 1; });
+    const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]);
+    const topWord = sorted[0];
+    const prefix = mode === 'cloud' ? "<b>Cloud Frequency Analysis</b><br>" : "";
+    
+    if (!topWord) return "No words found to analyze.";
+    return `${prefix}The most frequently used word is <b>"${topWord[0]}"</b>, which appears <b>${topWord[1]} times</b>.`;
+  }
   
-  if (p.includes('summarize')) return `<b>Summary:</b><br>${plainText.substring(0, 200)}...`;
-  
-  return `[${mode}] Analyzed ${plainText.length} chars.`;
+  // Logic: Summarization
+  if (p.includes('summarize') || p.includes('summary')) {
+      return `<b>Summary:</b><br>${plainText.substring(0, 300)}...<br><i>(Generated via ${mode} mode)</i>`;
+  }
+
+  // Default Fallback
+  return `[${mode === 'cloud' ? 'Cloud' : 'Local'}] I received your query: "${prompt}". I can analyze this ${plainText.length}-character document.`;
 };
 
 // --- IPC HANDLERS ---
-
-ipcMain.handle('app:checkUpdate', async () => {
-  return await performUpdateCheck();
-});
 
 ipcMain.handle('dialog:openFile', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({ properties: ['openFile'] });
@@ -116,9 +93,19 @@ ipcMain.handle('dialog:openFile', async () => {
   return { path: filePath, name: path.basename(filePath), ext: path.extname(filePath).toLowerCase().replace('.', '') };
 })
 
+// NEW: Save File Dialog Handler
+ipcMain.handle('dialog:saveFile', async (_, { defaultName, ext }) => {
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    defaultPath: defaultName,
+    filters: [{ name: `${ext.toUpperCase()} Files`, extensions: [ext] }]
+  });
+  return { canceled, filePath };
+});
+
 ipcMain.handle('file:readFile', async (_, filePath) => {
   if (!filePath) return { error: 'No path provided' }
   const ext = path.extname(filePath).toLowerCase().replace('.', '')
+  
   try {
     if (['png', 'jpg', 'jpeg', 'webp', 'svg'].includes(ext)) {
       const buffer = await fs.readFile(filePath)
@@ -126,6 +113,7 @@ ipcMain.handle('file:readFile', async (_, filePath) => {
     } 
     if (ext === 'pdf') {
       const buffer = await fs.readFile(filePath)
+      // Native iframe needs base64
       return { content: `data:application/pdf;base64,${buffer.toString('base64')}`, type: 'pdf', ext }
     }
     if (ext === 'docx') {
@@ -133,6 +121,7 @@ ipcMain.handle('file:readFile', async (_, filePath) => {
       const result = await mammoth.convertToHtml({ buffer })
       return { content: result.value, type: 'html', ext }
     }
+    // Default Text
     const content = await fs.readFile(filePath, 'utf-8')
     return { content, type: 'text', ext }
   } catch (err) {
@@ -156,9 +145,8 @@ ipcMain.handle('file:saveFile', async (_, { path: filePath, content }) => {
 })
 
 ipcMain.handle('ai:generate', async (_, { prompt, context, mode }) => {
-  await new Promise(resolve => setTimeout(resolve, mode === 'cloud' ? 1500 : 500));
-  const response = analyzeText(prompt, context, mode);
-  return { response };
+  await new Promise(resolve => setTimeout(resolve, 800));
+  return { response: analyzeText(prompt, context, mode) };
 })
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })

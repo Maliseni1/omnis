@@ -29357,15 +29357,14 @@ function requireLib() {
 var libExports = requireLib();
 const mammoth = /* @__PURE__ */ getDefaultExportFromCjs(libExports);
 const HTMLtoDOCX = require("html-to-docx");
-const GITHUB_REPO = "Maliseni1/omnis";
-const APP_VERSION = electron.app.getVersion();
 electron.app.disableHardwareAcceleration();
+electron.app.commandLine.appendSwitch("no-sandbox");
 electron.app.commandLine.appendSwitch("disable-gpu");
 electron.app.commandLine.appendSwitch("disable-software-rasterizer");
 electron.app.commandLine.appendSwitch("disable-gpu-compositing");
 electron.app.commandLine.appendSwitch("disable-gpu-rasterization");
 electron.app.commandLine.appendSwitch("disable-gpu-sandbox");
-electron.app.commandLine.appendSwitch("no-sandbox");
+electron.app.commandLine.appendSwitch("--no-zygote");
 process.env.DIST = path.join(__dirname, "../dist");
 process.env.VITE_PUBLIC = electron.app.isPackaged ? process.env.DIST : path.join(__dirname, "../public");
 let win;
@@ -29383,13 +29382,14 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       webSecurity: false,
+      // Helps with loading local resources
       plugins: true
+      // REQUIRED: Enables the native PDF viewer (iframe)
     }
   });
   win.setMenuBarVisibility(false);
   win.webContents.on("did-finish-load", () => {
     win?.webContents.send("main-process-message", (/* @__PURE__ */ new Date()).toLocaleString());
-    checkUpdatesAndNotify(win);
   });
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL);
@@ -29397,48 +29397,40 @@ function createWindow() {
     win.loadFile(path.join(process.env.DIST, "index.html"));
   }
 }
-const checkUpdatesAndNotify = async (window2) => {
-  const result = await performUpdateCheck();
-  if (result.update) {
-    window2.webContents.send("update-available", result);
-  }
-};
-const performUpdateCheck = async () => {
-  try {
-    const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
-      headers: { "User-Agent": "Omnis-Desktop-App" }
-    });
-    if (!response.ok) throw new Error("Repo not found or private");
-    const data = await response.json();
-    const latestTag = data.tag_name || "v0.0.0";
-    const latestVersion = latestTag.replace(/^v/, "");
-    const isUpdate = latestVersion !== APP_VERSION && latestVersion > APP_VERSION;
-    return {
-      update: isUpdate,
-      current: APP_VERSION,
-      latest: latestVersion,
-      url: data.html_url,
-      releaseNotes: data.body
-    };
-  } catch (error) {
-    console.error("Update check failed:", error);
-    return { update: false, current: APP_VERSION, error: error.message };
-  }
-};
 const analyzeText = (prompt, rawContext, mode) => {
   const p = prompt.toLowerCase();
   const plainText = rawContext.replace(/<[^>]*>?/gm, " ").replace(/\s+/g, " ").trim();
-  if (p.includes("summarize")) return `<b>Summary:</b><br>${plainText.substring(0, 200)}...`;
-  return `[${mode}] Analyzed ${plainText.length} chars.`;
+  const textLower = plainText.toLowerCase();
+  if (p.includes("most used") || p.includes("frequency") || p.includes("common word")) {
+    const words = textLower.match(/\b[a-z]{3,}\b/g) || [];
+    const stopWords = /* @__PURE__ */ new Set(["the", "and", "for", "that", "this", "with", "you", "not", "are", "from", "but", "have", "was", "all", "can", "your", "which", "will", "one", "has", "been", "there", "they", "our", "would", "what", "so", "if", "about", "who", "get", "go", "me", "my", "is", "it", "in", "to", "of", "on", "at", "by", "an", "be", "as", "or"]);
+    const freq = {};
+    words.forEach((w) => {
+      if (!stopWords.has(w)) freq[w] = (freq[w] || 0) + 1;
+    });
+    const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]);
+    const topWord = sorted[0];
+    const prefix = mode === "cloud" ? "<b>Cloud Frequency Analysis</b><br>" : "";
+    if (!topWord) return "No words found to analyze.";
+    return `${prefix}The most frequently used word is <b>"${topWord[0]}"</b>, which appears <b>${topWord[1]} times</b>.`;
+  }
+  if (p.includes("summarize") || p.includes("summary")) {
+    return `<b>Summary:</b><br>${plainText.substring(0, 300)}...<br><i>(Generated via ${mode} mode)</i>`;
+  }
+  return `[${mode === "cloud" ? "Cloud" : "Local"}] I received your query: "${prompt}". I can analyze this ${plainText.length}-character document.`;
 };
-electron.ipcMain.handle("app:checkUpdate", async () => {
-  return await performUpdateCheck();
-});
 electron.ipcMain.handle("dialog:openFile", async () => {
   const { canceled, filePaths } = await electron.dialog.showOpenDialog({ properties: ["openFile"] });
   if (canceled) return null;
   const filePath = filePaths[0];
   return { path: filePath, name: path.basename(filePath), ext: path.extname(filePath).toLowerCase().replace(".", "") };
+});
+electron.ipcMain.handle("dialog:saveFile", async (_, { defaultName, ext }) => {
+  const { canceled, filePath } = await electron.dialog.showSaveDialog({
+    defaultPath: defaultName,
+    filters: [{ name: `${ext.toUpperCase()} Files`, extensions: [ext] }]
+  });
+  return { canceled, filePath };
 });
 electron.ipcMain.handle("file:readFile", async (_, filePath) => {
   if (!filePath) return { error: "No path provided" };
@@ -29478,9 +29470,8 @@ electron.ipcMain.handle("file:saveFile", async (_, { path: filePath, content }) 
   }
 });
 electron.ipcMain.handle("ai:generate", async (_, { prompt, context: context2, mode }) => {
-  await new Promise((resolve) => setTimeout(resolve, mode === "cloud" ? 1500 : 500));
-  const response = analyzeText(prompt, context2, mode);
-  return { response };
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  return { response: analyzeText(prompt, context2, mode) };
 });
 electron.app.on("window-all-closed", () => {
   if (process.platform !== "darwin") electron.app.quit();

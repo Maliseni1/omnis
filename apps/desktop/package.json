@@ -1,16 +1,21 @@
 {
-  "name": "desktop",
+  "name": "omnis-desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "main": "dist-electron/main.js",
-  "author": "Chiza Labs",
+  "author": {
+    "name": "Chiza Labs",
+    "email": "chizalabs@gmail.com"
+  },
   "description": "Universal File Ecosystem",
+  "homepage": "https://github.com/maliseni1/omnis",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "dist": "pnpm build && electron-builder"
+    "postinstall": "electron-builder install-app-deps",
+    "dist": "pnpm build && electron-builder --linux"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -46,5 +51,53 @@
     "vite": "^7.2.4",
     "vite-plugin-electron": "^0.29.0",
     "vite-plugin-electron-renderer": "^0.14.6"
+  },
+  "build": {
+    "appId": "com.chizalabs.omnis",
+    "productName": "Omnis",
+    "directories": {
+      "output": "release/${version}"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json",
+      "build/icon.png",
+      "build/icons/**/*"
+    ],
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Office",
+      "maintainer": "Chiza Labs <chizalabs@gmail.com>",
+      "icon": "build/icons",
+      "executableName": "omnis",
+      "synopsis": "Universal File Ecosystem",
+      "description": "A comprehensive file management and editing application",
+      "asar": false,
+      "desktop": {
+        "StartupWMClass": "Omnis"
+      }
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libappindicator3-1",
+        "libsecret-1-0"
+      ]
+    },
+    "extraResources": [
+      {
+        "from": "build/icons/",
+        "to": "build/icons/",
+        "filter": ["**/*"]
+      }
+    ]
   }
 }

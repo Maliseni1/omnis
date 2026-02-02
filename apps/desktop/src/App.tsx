@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   FileText, 
   Settings, 
-  X, 
   Plus, 
   Bot, 
   Save, 
@@ -38,7 +37,13 @@ import {
   List,
   ListOrdered,
   Undo,
-  Redo
+  Redo,
+  X, 
+  Subscript,
+  Superscript,
+  Eraser,
+  Indent,
+  Outdent
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -50,8 +55,8 @@ import {
   PointerSensor, 
   useSensor, 
   useSensors, 
-  type DragEndEvent 
 } from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
 
 import { 
   arrayMove, 
@@ -67,6 +72,9 @@ import { SortableTab } from './components/SortableTab';
 import { HomeDashboard } from './components/HomeDashboard';
 import { SettingsModal } from './components/SettingsModal';
 
+// Import Hooks
+import { useFileOperations } from './hooks/useFileOperations';
+
 // --- Types ---
 type ViewerMode = 'view' | 'edit';
 type FileCategory = 'image' | 'pdf' | 'text' | 'html' | 'binary' | 'unknown' | 'error';
@@ -74,16 +82,11 @@ type FileCategory = 'image' | 'pdf' | 'text' | 'html' | 'binary' | 'unknown' | '
 interface OpenFile {
   id: string;
   name: string;
-  type: FileCategory; 
+  type: string; // Relaxed from FileCategory to string to match useFileOperations hook
   ext: string;       
   content: string;   
   path: string;
   lastSavedContent?: string; 
-}
-
-interface SaveResult {
-  success: boolean;
-  error?: string;
 }
 
 interface DialogSelection {
@@ -187,6 +190,9 @@ function App() {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const activeFile = openFiles.find(f => f.id === activeTabId);
+
+  // --- Use Custom Hooks ---
+  const { handleSaveFile, handleShareFile } = useFileOperations(activeFile, setOpenFiles, setIsLoading);
 
   // Auto-scroll chat
   useEffect(() => {
@@ -358,28 +364,6 @@ function App() {
     }
   };
 
-  const handleSaveFile = async () => {
-    if (!activeFile) return;
-    setIsLoading(true);
-    try {
-      // If path is empty, we technically need "Save As" (but for MVP we just log warning or fail gracefully)
-      if (!activeFile.path) {
-        console.warn("Save As not implemented yet for new files.");
-        setIsLoading(false);
-        return;
-      }
-
-      const result = (await window.ipcRenderer.invoke('file:saveFile', { path: activeFile.path, content: activeFile.content })) as SaveResult;
-      if (result.success) {
-        setOpenFiles(prev => prev.map(f => f.id === activeFile.id ? { ...f, lastSavedContent: f.content } : f));
-      }
-    } catch (error) {
-      console.error("Save failed:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const updateFileContent = (newContent: string) => {
     if (!activeFile) return;
     setOpenFiles(prev => prev.map(f => f.id === activeFile.id ? { ...f, content: newContent } : f));
@@ -435,7 +419,7 @@ function App() {
           <div className="flex items-center gap-1 pr-4 border-r border-slate-700">
             <ToolButton icon={Save} label="Save" onClick={handleSaveFile} tooltip="Save File (Ctrl+S)" />
             <ToolButton icon={Printer} label="Print" tooltip="Print File" />
-            <ToolButton icon={Share2} label="Share" tooltip="Share File" />
+            <ToolButton icon={Share2} label="Share" onClick={handleShareFile} tooltip="Share File" />
           </div>
           <div className="flex items-center gap-1 pr-4 border-r border-slate-700">
               <button onClick={() => setViewerMode(prev => prev === 'view' ? 'edit' : 'view')} className={`flex flex-col items-center justify-center w-16 h-14 rounded-lg group ${viewerMode === 'edit' ? 'bg-slate-700 text-indigo-300' : 'text-slate-400 hover:bg-slate-700'}`}>
@@ -462,7 +446,10 @@ function App() {
                     <FormatBtn icon={Italic} cmd="italic" onClick={() => execCmd('italic')} tooltip="Italic (Ctrl+I)" />
                     <FormatBtn icon={Underline} cmd="underline" onClick={() => execCmd('underline')} tooltip="Underline (Ctrl+U)" />
                     <FormatBtn icon={Strikethrough} cmd="strikethrough" onClick={() => execCmd('strikethrough')} tooltip="Strikethrough" />
+                    <FormatBtn icon={Subscript} cmd="subscript" onClick={() => execCmd('subscript')} tooltip="Subscript" />
+                    <FormatBtn icon={Superscript} cmd="superscript" onClick={() => execCmd('superscript')} tooltip="Superscript" />
                     <FormatBtn icon={CaseSensitive} cmd="case" onClick={changeCase} tooltip="Change Case" />
+                    <FormatBtn icon={Eraser} cmd="removeFormat" onClick={() => execCmd('removeFormat')} tooltip="Clear Formatting" />
                  </div>
               </div>
 
@@ -475,14 +462,19 @@ function App() {
                     <FormatBtn icon={AlignJustify} cmd="justifyFull" onClick={() => execCmd('justifyFull')} tooltip="Justify" />
                     <FormatBtn icon={List} cmd="insertUnorderedList" onClick={() => execCmd('insertUnorderedList')} tooltip="Bullet List" />
                     <FormatBtn icon={ListOrdered} cmd="insertOrderedList" onClick={() => execCmd('insertOrderedList')} tooltip="Numbered List" />
+                    <FormatBtn icon={Indent} cmd="indent" onClick={() => execCmd('indent')} tooltip="Indent" />
+                    <FormatBtn icon={Outdent} cmd="outdent" onClick={() => execCmd('outdent')} tooltip="Outdent" />
                  </div>
               </div>
 
-              {/* Edit Actions Group */}
+              {/* Insert & Actions */}
               <div className="flex items-center gap-1 px-2 border-r border-slate-700">
-                 <div className="flex gap-1">
-                   <FormatBtn icon={Undo} cmd="undo" onClick={() => execCmd('undo')} tooltip="Undo" />
-                   <FormatBtn icon={Redo} cmd="redo" onClick={() => execCmd('redo')} tooltip="Redo" />
+                 <div className="flex flex-col gap-1">
+                   {/* Removed Insert Image and Link for now as they require more complex UI logic */}
+                   <div className="flex gap-1">
+                     <FormatBtn icon={Undo} cmd="undo" onClick={() => execCmd('undo')} tooltip="Undo" />
+                     <FormatBtn icon={Redo} cmd="redo" onClick={() => execCmd('redo')} tooltip="Redo" />
+                   </div>
                  </div>
               </div>
 
@@ -562,33 +554,35 @@ function App() {
         <div className="flex-1 flex flex-col min-w-0">
           
           {/* Top Bar (Tabs with DnD) */}
-          {openFiles.length > 0 && (
-            <div className="h-10 bg-slate-950 flex items-end px-2 gap-1 border-b border-slate-800 pt-1 drag-region overflow-x-auto no-scrollbar">
-                <DndContext 
+          <div className="h-10 bg-slate-950 flex items-end px-2 gap-1 border-b border-slate-800 pt-1 drag-region overflow-x-auto no-scrollbar">
+            {openFiles.length > 0 ? (
+              <DndContext 
                 sensors={sensors} 
                 collisionDetection={closestCenter} 
                 onDragEnd={handleDragEnd}
-                >
+              >
                 <SortableContext 
-                    items={openFiles.map(f => f.id)}
-                    strategy={horizontalListSortingStrategy}
+                  items={openFiles.map(f => f.id)}
+                  strategy={horizontalListSortingStrategy}
                 >
-                    {openFiles.map(file => (
+                  {openFiles.map(file => (
                     <SortableTab 
-                        key={file.id} 
-                        file={file} 
-                        isActive={activeTabId === file.id}
-                        onActivate={() => { setActiveTabId(file.id); setCurrentPage(1); }}
-                        onClose={(e) => closeTab(e, file.id)}
-                        onContextMenu={(e) => handleContextMenu(e, file.id)}
+                      key={file.id} 
+                      file={file} 
+                      isActive={activeTabId === file.id}
+                      onActivate={() => { setActiveTabId(file.id); setCurrentPage(1); }}
+                      onClose={(e) => closeTab(e, file.id)}
+                      onContextMenu={(e) => handleContextMenu(e, file.id)}
                     />
-                    ))}
+                  ))}
                 </SortableContext>
-                </DndContext>
-                
-                <button onClick={handleOpenFile} className="p-2 text-slate-500 hover:text-indigo-400 transition-colors shrink-0" title="Open File"><Plus size={16} /></button>
-            </div>
-          )}
+              </DndContext>
+            ) : (
+               <div className="flex-1"></div> // Spacer when no tabs
+            )}
+            
+            <button onClick={handleOpenFile} className="p-2 text-slate-500 hover:text-indigo-400 transition-colors shrink-0" title="Open File"><Plus size={16} /></button>
+          </div>
 
           {/* Context Menu */}
           {contextMenu && (
@@ -609,31 +603,29 @@ function App() {
             </div>
           )}
 
-          {/* Toolbar - Only visible if files are open */}
-          {openFiles.length > 0 && (
-            <div className="h-28 bg-slate-800 border-b border-slate-700 shadow-lg flex flex-col z-10">
-                <div className="flex px-4 text-xs font-medium gap-6 pt-2 text-slate-400 border-b border-slate-700/50">
-                {['Home', 'Edit', 'View', 'AI Assistant', 'Convert'].map(group => (
-                    <button 
-                    key={group} 
-                    onClick={() => setActiveToolGroup(group)} 
-                    className={`pb-2 border-b-2 transition-all ${activeToolGroup === group ? 'text-white border-indigo-500' : 'border-transparent hover:text-slate-200'}`}
-                    >
-                    {group}
-                    </button>
-                ))}
-                </div>
-                <div className="flex-1 flex items-center px-4 gap-2 overflow-x-auto no-scrollbar">
-                {renderToolbar()}
-                <div className="ml-auto flex items-center">
-                    <button onClick={() => setIsAiPanelOpen(!isAiPanelOpen)} className={`flex flex-col items-center justify-center w-16 h-14 rounded-xl border ${isAiPanelOpen ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-transparent hover:bg-slate-700 text-slate-300'}`}>
-                    <Bot size={20} />
-                    <span className="text-[10px] mt-1 font-medium">AI</span>
-                    </button>
-                </div>
-                </div>
+          {/* Toolbar */}
+          <div className="h-28 bg-slate-800 border-b border-slate-700 shadow-lg flex flex-col z-10">
+            <div className="flex px-4 text-xs font-medium gap-6 pt-2 text-slate-400 border-b border-slate-700/50">
+              {['Home', 'Edit', 'View', 'AI Assistant', 'Convert'].map(group => (
+                <button 
+                  key={group} 
+                  onClick={() => setActiveToolGroup(group)} 
+                  className={`pb-2 border-b-2 transition-all ${activeToolGroup === group ? 'text-white border-indigo-500' : 'border-transparent hover:text-slate-200'}`}
+                >
+                  {group}
+                </button>
+              ))}
             </div>
-          )}
+            <div className="flex-1 flex items-center px-4 gap-2 overflow-x-auto no-scrollbar">
+              {renderToolbar()}
+              <div className="ml-auto flex items-center">
+                 <button onClick={() => setIsAiPanelOpen(!isAiPanelOpen)} className={`flex flex-col items-center justify-center w-16 h-14 rounded-xl border ${isAiPanelOpen ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-transparent hover:bg-slate-700 text-slate-300'}`}>
+                  <Bot size={20} />
+                  <span className="text-[10px] mt-1 font-medium">AI</span>
+                </button>
+              </div>
+            </div>
+          </div>
 
           {/* Workspace */}
           <div className="flex-1 bg-slate-900 relative flex overflow-hidden">
