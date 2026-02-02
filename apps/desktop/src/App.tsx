@@ -38,12 +38,7 @@ import {
   ListOrdered,
   Undo,
   Redo,
-  X, 
-  Subscript,
-  Superscript,
-  Eraser,
-  Indent,
-  Outdent
+  X 
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -55,8 +50,8 @@ import {
   PointerSensor, 
   useSensor, 
   useSensors, 
+  type DragEndEvent 
 } from '@dnd-kit/core';
-import type { DragEndEvent } from '@dnd-kit/core';
 
 import { 
   arrayMove, 
@@ -446,10 +441,7 @@ function App() {
                     <FormatBtn icon={Italic} cmd="italic" onClick={() => execCmd('italic')} tooltip="Italic (Ctrl+I)" />
                     <FormatBtn icon={Underline} cmd="underline" onClick={() => execCmd('underline')} tooltip="Underline (Ctrl+U)" />
                     <FormatBtn icon={Strikethrough} cmd="strikethrough" onClick={() => execCmd('strikethrough')} tooltip="Strikethrough" />
-                    <FormatBtn icon={Subscript} cmd="subscript" onClick={() => execCmd('subscript')} tooltip="Subscript" />
-                    <FormatBtn icon={Superscript} cmd="superscript" onClick={() => execCmd('superscript')} tooltip="Superscript" />
                     <FormatBtn icon={CaseSensitive} cmd="case" onClick={changeCase} tooltip="Change Case" />
-                    <FormatBtn icon={Eraser} cmd="removeFormat" onClick={() => execCmd('removeFormat')} tooltip="Clear Formatting" />
                  </div>
               </div>
 
@@ -462,19 +454,14 @@ function App() {
                     <FormatBtn icon={AlignJustify} cmd="justifyFull" onClick={() => execCmd('justifyFull')} tooltip="Justify" />
                     <FormatBtn icon={List} cmd="insertUnorderedList" onClick={() => execCmd('insertUnorderedList')} tooltip="Bullet List" />
                     <FormatBtn icon={ListOrdered} cmd="insertOrderedList" onClick={() => execCmd('insertOrderedList')} tooltip="Numbered List" />
-                    <FormatBtn icon={Indent} cmd="indent" onClick={() => execCmd('indent')} tooltip="Indent" />
-                    <FormatBtn icon={Outdent} cmd="outdent" onClick={() => execCmd('outdent')} tooltip="Outdent" />
                  </div>
               </div>
 
-              {/* Insert & Actions */}
+              {/* Edit Actions Group */}
               <div className="flex items-center gap-1 px-2 border-r border-slate-700">
-                 <div className="flex flex-col gap-1">
-                   {/* Removed Insert Image and Link for now as they require more complex UI logic */}
-                   <div className="flex gap-1">
-                     <FormatBtn icon={Undo} cmd="undo" onClick={() => execCmd('undo')} tooltip="Undo" />
-                     <FormatBtn icon={Redo} cmd="redo" onClick={() => execCmd('redo')} tooltip="Redo" />
-                   </div>
+                 <div className="flex gap-1">
+                   <FormatBtn icon={Undo} cmd="undo" onClick={() => execCmd('undo')} tooltip="Undo" />
+                   <FormatBtn icon={Redo} cmd="redo" onClick={() => execCmd('redo')} tooltip="Redo" />
                  </div>
               </div>
 
@@ -604,28 +591,30 @@ function App() {
           )}
 
           {/* Toolbar */}
-          <div className="h-28 bg-slate-800 border-b border-slate-700 shadow-lg flex flex-col z-10">
-            <div className="flex px-4 text-xs font-medium gap-6 pt-2 text-slate-400 border-b border-slate-700/50">
-              {['Home', 'Edit', 'View', 'AI Assistant', 'Convert'].map(group => (
-                <button 
-                  key={group} 
-                  onClick={() => setActiveToolGroup(group)} 
-                  className={`pb-2 border-b-2 transition-all ${activeToolGroup === group ? 'text-white border-indigo-500' : 'border-transparent hover:text-slate-200'}`}
-                >
-                  {group}
-                </button>
-              ))}
+          {openFiles.length > 0 && (
+            <div className="h-28 bg-slate-800 border-b border-slate-700 shadow-lg flex flex-col z-10">
+                <div className="flex px-4 text-xs font-medium gap-6 pt-2 text-slate-400 border-b border-slate-700/50">
+                {['Home', 'Edit', 'View', 'AI Assistant', 'Convert'].map(group => (
+                    <button 
+                    key={group} 
+                    onClick={() => setActiveToolGroup(group)} 
+                    className={`pb-2 border-b-2 transition-all ${activeToolGroup === group ? 'text-white border-indigo-500' : 'border-transparent hover:text-slate-200'}`}
+                    >
+                    {group}
+                    </button>
+                ))}
+                </div>
+                <div className="flex-1 flex items-center px-4 gap-2 overflow-x-auto no-scrollbar">
+                {renderToolbar()}
+                <div className="ml-auto flex items-center">
+                    <button onClick={() => setIsAiPanelOpen(!isAiPanelOpen)} className={`flex flex-col items-center justify-center w-16 h-14 rounded-xl border ${isAiPanelOpen ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-transparent hover:bg-slate-700 text-slate-300'}`}>
+                    <Bot size={20} />
+                    <span className="text-[10px] mt-1 font-medium">AI</span>
+                    </button>
+                </div>
+                </div>
             </div>
-            <div className="flex-1 flex items-center px-4 gap-2 overflow-x-auto no-scrollbar">
-              {renderToolbar()}
-              <div className="ml-auto flex items-center">
-                 <button onClick={() => setIsAiPanelOpen(!isAiPanelOpen)} className={`flex flex-col items-center justify-center w-16 h-14 rounded-xl border ${isAiPanelOpen ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-transparent hover:bg-slate-700 text-slate-300'}`}>
-                  <Bot size={20} />
-                  <span className="text-[10px] mt-1 font-medium">AI</span>
-                </button>
-              </div>
-            </div>
-          </div>
+          )}
 
           {/* Workspace */}
           <div className="flex-1 bg-slate-900 relative flex overflow-hidden">
