@@ -4,10 +4,13 @@ import { X, Moon, Sun, Monitor, Cpu, Type, RefreshCw, CheckCircle, AlertCircle, 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  updateAvailable?: boolean; // Prop to indicate if app knows update exists
+  updateAvailable?: boolean;
+  currentTheme: 'dark' | 'light' | 'system';
+  effectiveTheme: 'dark' | 'light';
+  onThemeChange: (theme: 'dark' | 'light' | 'system') => void;
 }
 
-// Define the shape of the response from the main process
+// Define the shape of the update check result from the main process
 interface UpdateCheckResult {
   update: boolean;
   current: string;
@@ -16,10 +19,17 @@ interface UpdateCheckResult {
   error?: string;
 }
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, updateAvailable }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({ 
+  isOpen, 
+  onClose, 
+  updateAvailable,
+  currentTheme,
+  effectiveTheme,
+  onThemeChange
+}) => {
   const [checking, setChecking] = useState(false);
   const [status, setStatus] = useState<'idle' | 'available' | 'uptodate' | 'error'>('idle');
-  const [versionInfo, setVersionInfo] = useState<{ current: string, latest?: string, url?: string }>({ current: '0.1.0' });
+  const [versionInfo, setVersionInfo] = useState<{ current: string, latest?: string, url?: string }>({ current: '0.1.1' });
 
   useEffect(() => {
     if (isOpen && updateAvailable) {
@@ -31,7 +41,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, u
     setChecking(true);
     setStatus('idle');
     try {
-      // Call backend via IPC and cast the result
+      // Cast the result to the defined interface to fix 'unknown' type errors
+      // @ts-ignore
       const result = (await window.ipcRenderer.invoke('app:checkUpdate')) as UpdateCheckResult;
       
       setVersionInfo({ current: result.current, latest: result.latest, url: result.url });
@@ -51,14 +62,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, u
 
   if (!isOpen) return null;
 
+  // Dynamic styles based on effectiveTheme
+  const isDark = effectiveTheme === 'dark';
+  const modalBg = isDark ? "bg-slate-900" : "bg-white";
+  const modalBorder = isDark ? "border-slate-700" : "border-slate-200";
+  const textMain = isDark ? "text-white" : "text-slate-900";
+  const textSub = isDark ? "text-slate-400" : "text-slate-500";
+  const sectionHeader = isDark ? "text-slate-500" : "text-slate-400";
+  const optionBgActive = isDark ? "bg-indigo-600/10 border-indigo-500 text-indigo-400 ring-1 ring-indigo-500" : "bg-indigo-50 border-indigo-200 text-indigo-600 ring-1 ring-indigo-200";
+  const optionBgInactive = isDark ? "bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-white" : "bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-900";
+
   return (
     <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[80vh] overflow-hidden">
+      <div className={`${modalBg} ${modalBorder} border w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[80vh] overflow-hidden transition-colors duration-300`}>
         
         {/* Header */}
-        <div className="p-6 border-b border-slate-800 flex justify-between items-center">
-          <h2 className="text-xl font-semibold text-white">Settings</h2>
-          <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors">
+        <div className={`p-6 border-b ${modalBorder} flex justify-between items-center`}>
+          <h2 className={`text-xl font-semibold ${textMain}`}>Settings</h2>
+          <button onClick={onClose} className={`p-2 rounded-lg ${textSub} hover:bg-opacity-10 hover:bg-slate-500 hover:text-opacity-80 transition-colors`}>
             <X size={20} />
           </button>
         </div>
@@ -66,36 +87,68 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, u
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-8">
           
+          {/* Section: Appearance */}
+          <section className="space-y-4">
+            <h3 className={`text-sm uppercase tracking-wider ${sectionHeader} font-bold flex items-center gap-2`}>
+              <Monitor size={16} /> Appearance
+            </h3>
+            <div className="grid grid-cols-3 gap-4">
+               <ThemeOption 
+                  label="System" 
+                  icon={Monitor} 
+                  active={currentTheme === 'system'} 
+                  onClick={() => onThemeChange('system')}
+                  activeClass={optionBgActive}
+                  inactiveClass={optionBgInactive}
+               />
+               <ThemeOption 
+                  label="Dark" 
+                  icon={Moon} 
+                  active={currentTheme === 'dark'} 
+                  onClick={() => onThemeChange('dark')}
+                  activeClass={optionBgActive}
+                  inactiveClass={optionBgInactive}
+               />
+               <ThemeOption 
+                  label="Light" 
+                  icon={Sun} 
+                  active={currentTheme === 'light'} 
+                  onClick={() => onThemeChange('light')}
+                  activeClass={optionBgActive}
+                  inactiveClass={optionBgInactive}
+               />
+            </div>
+          </section>
+
           {/* Section: Updates */}
           <section className="space-y-4">
-            <h3 className="text-sm uppercase tracking-wider text-slate-500 font-bold flex items-center gap-2">
+            <h3 className={`text-sm uppercase tracking-wider ${sectionHeader} font-bold flex items-center gap-2`}>
               <RefreshCw size={16} /> Updates & Version
             </h3>
-            <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700">
+            <div className={`${isDark ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'} border rounded-xl p-5`}>
                <div className="flex justify-between items-center mb-4">
                  <div>
-                   <p className="text-slate-200 font-medium">Current Version: <span className="font-mono text-indigo-400">{versionInfo.current}</span></p>
-                   <p className="text-slate-500 text-xs">Omnis is checking for updates automatically.</p>
+                   <p className={`${isDark ? 'text-slate-200' : 'text-slate-700'} font-medium`}>Current Version: <span className="font-mono text-indigo-500">{versionInfo.current}</span></p>
+                   <p className={`${textSub} text-xs`}>Omnis is checking for updates automatically.</p>
                  </div>
                  <button 
                     onClick={handleCheckUpdate}
                     disabled={checking}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-400 disabled:text-slate-200 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
                  >
                     {checking ? <RefreshCw size={14} className="animate-spin" /> : 'Check Now'}
                  </button>
                </div>
-
+               
                {/* Status Messages */}
                {status === 'uptodate' && (
-                 <div className="flex items-center gap-2 text-emerald-400 text-sm bg-emerald-500/10 p-3 rounded-lg border border-emerald-500/20">
+                 <div className="flex items-center gap-2 text-emerald-600 text-sm bg-emerald-50 p-3 rounded-lg border border-emerald-200">
                     <CheckCircle size={16} /> You are on the latest version.
                  </div>
                )}
-
                {status === 'available' && (
-                 <div className="flex flex-col gap-3 text-indigo-300 text-sm bg-indigo-500/10 p-4 rounded-lg border border-indigo-500/20">
-                    <div className="flex items-center gap-2 font-semibold text-indigo-200">
+                 <div className="flex flex-col gap-3 text-indigo-700 text-sm bg-indigo-50 p-4 rounded-lg border border-indigo-200">
+                    <div className="flex items-center gap-2 font-semibold">
                        <Download size={16} /> New Update Available ({versionInfo.latest})
                     </div>
                     <p>A new version of Omnis is ready to download.</p>
@@ -106,41 +159,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, u
                     )}
                  </div>
                )}
-
                {status === 'error' && (
-                 <div className="flex items-center gap-2 text-red-400 text-sm bg-red-500/10 p-3 rounded-lg border border-red-500/20">
-                    <AlertCircle size={16} /> Failed to check for updates. Check internet connection.
+                 <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 p-3 rounded-lg border border-red-200">
+                    <AlertCircle size={16} /> Failed to check for updates.
                  </div>
                )}
             </div>
           </section>
 
-          {/* Section: Appearance */}
-          <section className="space-y-4">
-            <h3 className="text-sm uppercase tracking-wider text-slate-500 font-bold flex items-center gap-2">
-              <Monitor size={16} /> Appearance
-            </h3>
-            <div className="grid grid-cols-3 gap-4">
-               <ThemeOption label="System" icon={Monitor} active />
-               <ThemeOption label="Dark" icon={Moon} />
-               <ThemeOption label="Light" icon={Sun} disabled />
-            </div>
-          </section>
-
           {/* Section: AI Preferences */}
           <section className="space-y-4">
-            <h3 className="text-sm uppercase tracking-wider text-slate-500 font-bold flex items-center gap-2">
+            <h3 className={`text-sm uppercase tracking-wider ${sectionHeader} font-bold flex items-center gap-2`}>
               <Cpu size={16} /> Intelligence
             </h3>
-            <div className="bg-slate-800/50 rounded-xl p-4 space-y-4 border border-slate-700">
+            <div className={`${isDark ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'} rounded-xl p-4 space-y-4 border`}>
                <div className="flex justify-between items-center">
                  <div>
-                   <p className="text-slate-200 font-medium text-sm">Default Model</p>
-                   <p className="text-slate-500 text-xs">Choose between speed (Local) and capability (Cloud).</p>
+                   <p className={`${isDark ? 'text-slate-200' : 'text-slate-700'} font-medium text-sm`}>Default Model</p>
+                   <p className={`${textSub} text-xs`}>Choose between speed (Local) and capability (Cloud).</p>
                  </div>
-                 <div className="flex bg-slate-900 rounded-lg p-1 border border-slate-800">
-                    <button className="px-3 py-1 bg-slate-700 rounded text-xs text-white shadow-sm">Local</button>
-                    <button className="px-3 py-1 text-xs text-slate-400 hover:text-white">Cloud</button>
+                 <div className={`flex ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} rounded-lg p-1 border`}>
+                    <button className={`px-3 py-1 ${isDark ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-800'} rounded text-xs shadow-sm`}>Local</button>
+                    <button className={`px-3 py-1 text-xs ${textSub} hover:text-indigo-500`}>Cloud</button>
                  </div>
                </div>
             </div>
@@ -148,16 +188,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, u
 
           {/* Section: Editor */}
           <section className="space-y-4">
-            <h3 className="text-sm uppercase tracking-wider text-slate-500 font-bold flex items-center gap-2">
+            <h3 className={`text-sm uppercase tracking-wider ${sectionHeader} font-bold flex items-center gap-2`}>
               <Type size={16} /> Editor
             </h3>
             <div className="space-y-2">
-               <label className="flex items-center justify-between p-3 rounded-lg hover:bg-slate-800/50 transition-colors cursor-pointer group">
-                  <span className="text-sm text-slate-300 group-hover:text-white">Enable Spell Check</span>
+               <label className={`flex items-center justify-between p-3 rounded-lg hover:bg-opacity-50 transition-colors cursor-pointer group ${isDark ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
+                  <span className={`text-sm ${isDark ? 'text-slate-300 group-hover:text-white' : 'text-slate-600 group-hover:text-slate-900'}`}>Enable Spell Check</span>
                   <input type="checkbox" defaultChecked className="accent-indigo-500" />
                </label>
-               <label className="flex items-center justify-between p-3 rounded-lg hover:bg-slate-800/50 transition-colors cursor-pointer group">
-                  <span className="text-sm text-slate-300 group-hover:text-white">Auto-Save Documents</span>
+               <label className={`flex items-center justify-between p-3 rounded-lg hover:bg-opacity-50 transition-colors cursor-pointer group ${isDark ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
+                  <span className={`text-sm ${isDark ? 'text-slate-300 group-hover:text-white' : 'text-slate-600 group-hover:text-slate-900'}`}>Auto-Save Documents</span>
                   <input type="checkbox" defaultChecked className="accent-indigo-500" />
                </label>
             </div>
@@ -166,7 +206,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, u
         </div>
         
         {/* Footer */}
-        <div className="p-4 bg-slate-950 border-t border-slate-800 text-center text-xs text-slate-500">
+        <div className={`p-4 ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'} border-t text-center text-xs ${textSub}`}>
            Omnis v{versionInfo.current} • Chiza Labs
         </div>
 
@@ -175,15 +215,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, u
   );
 };
 
-const ThemeOption = ({ label, icon: Icon, active, disabled }: { label: string, icon: any, active?: boolean, disabled?: boolean }) => (
+const ThemeOption = ({ label, icon: Icon, active, disabled, onClick, activeClass, inactiveClass }: { label: string, icon: any, active?: boolean, disabled?: boolean, onClick?: () => void, activeClass: string, inactiveClass: string }) => (
   <button 
+    onClick={onClick}
     disabled={disabled}
     className={`
       flex flex-col items-center justify-center gap-3 p-4 rounded-xl border transition-all
-      ${active 
-        ? 'bg-indigo-600/10 border-indigo-500 text-indigo-400 ring-1 ring-indigo-500' 
-        : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-white'
-      }
+      ${active ? activeClass : inactiveClass}
       ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
     `}
   >
