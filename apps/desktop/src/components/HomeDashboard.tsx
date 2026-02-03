@@ -12,14 +12,32 @@ import {
   X
 } from 'lucide-react';
 
+// Define structure for history items
+export interface RecentFile {
+  id: string;
+  name: string;
+  type: string;
+  path: string;
+  lastOpened: Date;
+}
+
 interface HomeDashboardProps {
   onOpenFile: () => void;
   onOpenSettings: () => void;
   onCreateFile: (type: 'docx' | 'pdf') => void;
   theme: 'dark' | 'light';
+  recentFiles?: RecentFile[];
+  onOpenRecent?: (path: string) => void;
 }
 
-export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onOpenFile, onOpenSettings, onCreateFile, theme }) => {
+export const HomeDashboard: React.FC<HomeDashboardProps> = ({ 
+  onOpenFile, 
+  onOpenSettings, 
+  onCreateFile, 
+  theme,
+  recentFiles = [],
+  onOpenRecent
+}) => {
   const [isNewDocModalOpen, setIsNewDocModalOpen] = useState(false);
 
   const handleCreate = (type: 'docx' | 'pdf') => {
@@ -45,12 +63,12 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onOpenFile, onOpen
         <p className={`${textSub} text-lg`}>Your universal workspace for documents.</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-full">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-full min-h-0">
         
         {/* Left Column: Quick Actions */}
-        <div className="lg:col-span-2 space-y-8">
+        <div className="lg:col-span-2 flex flex-col gap-8 overflow-y-auto pr-2 custom-scrollbar">
           
-          <div className="space-y-4">
+          <div className="space-y-4 shrink-0">
             <h2 className={`text-sm uppercase tracking-wider ${textSub} font-semibold`}>Start</h2>
             <div className="grid grid-cols-2 gap-4">
               <button 
@@ -77,7 +95,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onOpenFile, onOpen
             </div>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-4 shrink-0">
              <h2 className={`text-sm uppercase tracking-wider ${textSub} font-semibold`}>Supported Formats</h2>
              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <FileCard icon={FileText} label="Word (.docx)" active theme={theme} />
@@ -93,8 +111,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onOpenFile, onOpen
         </div>
 
         {/* Right Column: Recent / Info */}
-        <div className={`${cardBg} border ${cardBorder} rounded-2xl p-6 flex flex-col`}>
-           <div className="flex items-center justify-between mb-6">
+        <div className={`${cardBg} border ${cardBorder} rounded-2xl p-6 flex flex-col overflow-hidden min-h-[300px]`}>
+           <div className="flex items-center justify-between mb-6 shrink-0">
              <h2 className="font-semibold flex items-center gap-2">
                <Clock size={18} className={textSub} /> Recent Files
              </h2>
@@ -103,11 +121,34 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onOpenFile, onOpen
              </button>
            </div>
            
-           <div className={`flex-1 flex flex-col items-center justify-center ${textSub} space-y-4 opacity-50`}>
-              <div className={`w-16 h-16 ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-100'} rounded-full flex items-center justify-center`}>
-                <Clock size={24} />
-              </div>
-              <p className="text-sm">No recent files</p>
+           <div className="flex-1 overflow-y-auto custom-scrollbar -mx-2 px-2">
+              {recentFiles.length === 0 ? (
+                <div className={`h-full flex flex-col items-center justify-center ${textSub} space-y-4 opacity-50`}>
+                    <div className={`w-16 h-16 ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-100'} rounded-full flex items-center justify-center`}>
+                      <Clock size={24} />
+                    </div>
+                    <p className="text-sm">No recent files</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                   {recentFiles.map(file => (
+                     <button 
+                       key={file.path} 
+                       onClick={() => onOpenRecent && onOpenRecent(file.path)}
+                       className={`w-full text-left p-3 rounded-xl flex items-center gap-3 transition-all group ${theme === 'dark' ? 'hover:bg-slate-800' : 'hover:bg-slate-50 border border-transparent hover:border-slate-200'}`}
+                     >
+                       <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${theme === 'dark' ? 'bg-slate-800 group-hover:bg-slate-700' : 'bg-slate-100 group-hover:bg-white'} transition-colors`}>
+                         {/* Icon based on file type logic */}
+                         <FileIcon type={file.type} />
+                       </div>
+                       <div className="min-w-0 flex-1">
+                         <p className={`text-sm font-medium truncate ${textMain}`}>{file.name}</p>
+                         <p className={`text-[10px] truncate ${textSub}`}>{file.path}</p>
+                       </div>
+                     </button>
+                   ))}
+                </div>
+              )}
            </div>
         </div>
 
@@ -116,7 +157,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onOpenFile, onOpen
       {/* New Document Modal */}
       {isNewDocModalOpen && (
         <div className="absolute inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-           <div className={`w-full max-w-4xl ${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} border rounded-3xl shadow-2xl overflow-hidden flex flex-col`}>
+           <div className={`w-full max-w-4xl ${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} border rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200`}>
               <div className={`p-6 border-b ${theme === 'dark' ? 'border-slate-700 bg-slate-800' : 'border-slate-100 bg-white'} flex justify-between items-center`}>
                  <h2 className={`text-xl font-semibold flex items-center gap-2 ${textMain}`}>
                    <FilePlus className="text-emerald-400" /> Create New
@@ -137,7 +178,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onOpenFile, onOpen
                     theme={theme}
                  />
                  
-                 {/* Coming Soon / Disabled */}
+                 {/* Disabled */}
                  <NewDocOption 
                     icon={FileType} 
                     label="Omnis PDF" 
@@ -159,6 +200,13 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onOpenFile, onOpen
       )}
     </div>
   );
+};
+
+// Helper for file icons in recent list
+const FileIcon = ({ type }: { type: string }) => {
+  if (type === 'image') return <ImageIcon size={18} className="text-violet-400" />;
+  if (type === 'pdf') return <FileType size={18} className="text-rose-400" />;
+  return <FileText size={18} className="text-emerald-400" />;
 };
 
 const FileCard = ({ icon: Icon, label, active, badge, theme }: { icon: any, label: string, active?: boolean, badge?: string, theme: 'dark' | 'light' }) => {
