@@ -78,7 +78,6 @@ import { useFileOperations } from './hooks/useFileOperations';
 // --- Types ---
 type ViewerMode = 'view' | 'edit';
 type FileCategory = 'image' | 'pdf' | 'text' | 'html' | 'binary' | 'unknown' | 'error';
-// Fixed: Added 'system' to Theme type
 type Theme = 'dark' | 'light' | 'system';
 
 interface OpenFile {
@@ -170,6 +169,17 @@ function App() {
   const [theme, setTheme] = useState<Theme>('dark');
   const [systemTheme, setSystemTheme] = useState<'dark' | 'light'>('dark');
   
+  // History State
+  const [recentFiles, setRecentFiles] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem('omnis-recent-files');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error("Failed to parse recent files", e);
+      return [];
+    }
+  });
+
   // Update Notification State
   const [updateAvailable, setUpdateAvailable] = useState(false);
   
@@ -198,13 +208,36 @@ function App() {
   // --- Use Custom Hooks ---
   const { handleSaveFile, handleShareFile } = useFileOperations(activeFile, setOpenFiles, setIsLoading);
 
+  // --- History Management ---
+  const addToRecent = (file: OpenFile) => {
+    if (!file.path) return;
+    
+    setRecentFiles(prev => {
+      const filtered = prev.filter(f => f.path !== file.path);
+      const newEntry = {
+        id: file.id,
+        name: file.name,
+        type: file.type,
+        path: file.path,
+        lastOpened: new Date()
+      };
+      const updated = [newEntry, ...filtered].slice(0, 10);
+      localStorage.setItem('omnis-recent-files', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  useEffect(() => {
+    if (activeFile && activeFile.path) {
+      addToRecent(activeFile);
+    }
+  }, [activeFile?.path]);
+
   // Determine effective theme based on system preference
   useEffect(() => {
-    // Check initial system preference
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     setSystemTheme(mediaQuery.matches ? 'dark' : 'light');
 
-    // Listen for changes
     const handler = (e: MediaQueryListEvent) => setSystemTheme(e.matches ? 'dark' : 'light');
     mediaQuery.addEventListener('change', handler);
     return () => mediaQuery.removeEventListener('change', handler);
@@ -213,12 +246,19 @@ function App() {
   const effectiveTheme = theme === 'system' ? systemTheme : theme;
   const isDark = effectiveTheme === 'dark';
 
+  // --- Theme Constants (Moved to component scope) ---
+  const bgMain = isDark ? 'bg-slate-900' : 'bg-slate-50';
+  const textMain = isDark ? 'text-slate-100' : 'text-slate-900';
+  const sidebarBg = isDark ? 'bg-slate-950' : 'bg-white';
+  const borderMain = isDark ? 'border-slate-800' : 'border-slate-200';
+  const toolbarBg = isDark ? 'bg-slate-800' : 'bg-white';
+
   // Auto-scroll chat
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatHistory, isAiPanelOpen]);
 
-  // Listen for Update Signals from Backend
+  // Listen for Update Signals
   useEffect(() => {
     // @ts-ignore
     if (window.ipcRenderer) {
@@ -326,20 +366,19 @@ function App() {
       newFile = {
         id: newFileId,
         name: 'Untitled.docx',
-        type: 'html', // We view/edit DOCX as HTML
+        type: 'html', 
         ext: 'docx',
-        content: '<p>Start typing your new document here...</p>', // Blank HTML structure
-        path: '', // Empty path indicates it hasn't been saved yet
+        content: '<p>Start typing your new document here...</p>', 
+        path: '', 
         lastSavedContent: '' 
       };
     } else {
-      // PDF creation is placeholder for now
       newFile = {
         id: newFileId,
         name: 'Untitled.pdf',
         type: 'pdf',
         ext: 'pdf',
-        content: '', // Empty PDF content
+        content: '', 
         path: '',
         lastSavedContent: ''
       };
@@ -354,32 +393,53 @@ function App() {
     try {
       const selection = (await window.ipcRenderer.invoke('dialog:openFile')) as DialogSelection | null;
       if (selection) {
-        setIsLoading(true);
-        setLoadingFile(selection.name);
-        const readResult = (await window.ipcRenderer.invoke('file:readFile', selection.path)) as ReadFileResult;
-        if (readResult && !readResult.error) {
-          const newFile: OpenFile = { 
-              id: crypto.randomUUID(),
-              name: selection.name,
-              path: selection.path,
-              ext: selection.ext,
-              type: readResult.type,
-              content: readResult.content,
-              lastSavedContent: readResult.content 
-          };
-          setOpenFiles(prev => [...prev, newFile]);
-          setActiveTabId(newFile.id);
-          setViewerMode('view');
-          setCurrentPage(1);
-        } else {
-          console.error("Read error:", readResult?.error);
-        }
+        openFileFromPath(selection.path);
       }
     } catch (error) {
       console.error('Failed to open file:', error);
+    }
+  };
+
+  // Open file from path (used by Recent Files)
+  const openFileFromPath = async (filePath: string) => {
+    const existing = openFiles.find(f => f.path === filePath);
+    if (existing) {
+       setActiveTabId(existing.id);
+       return;
+    }
+
+    setIsLoading(true);
+    setLoadingFile(filePath.split(/[\\/]/).pop() || 'File');
+    try {
+      const readResult = (await window.ipcRenderer.invoke('file:readFile', filePath)) as ReadFileResult;
+      if (readResult && !readResult.error) {
+        const name = filePath.split(/[\\/]/).pop() || 'Untitled';
+        const ext = name.split('.').pop() || '';
+
+        const newFile: OpenFile = { 
+            id: crypto.randomUUID(),
+            name: name,
+            path: filePath,
+            ext: ext,
+            type: readResult.type,
+            content: readResult.content,
+            lastSavedContent: readResult.content 
+        };
+        setOpenFiles(prev => [...prev, newFile]);
+        setActiveTabId(newFile.id);
+        setViewerMode('view');
+        setCurrentPage(1);
+        addToRecent(newFile);
+      } else {
+        console.error("Read error:", readResult?.error);
+        alert(`Could not open file: ${readResult?.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+       console.error('Failed to open file path:', error);
+       alert("Failed to open file. It may have been moved or deleted.");
     } finally {
-      setIsLoading(false);
-      setLoadingFile(null);
+       setIsLoading(false);
+       setLoadingFile(null);
     }
   };
 
@@ -394,6 +454,32 @@ function App() {
     document.execCommand(command, false, value);
     const editor = document.getElementById('editor-container');
     if (editor) editor.focus();
+  };
+
+  // Extended Editing Functions
+  const insertLink = () => {
+    if (viewerMode !== 'edit' || activeFile?.type !== 'html') return;
+    const url = window.prompt("Enter the URL:");
+    if (url) {
+      execCmd('createLink', url);
+    }
+  };
+
+  const insertImage = async () => {
+    if (viewerMode !== 'edit' || activeFile?.type !== 'html') return;
+    try {
+      const selection = (await window.ipcRenderer.invoke('dialog:openFile')) as DialogSelection | null;
+      if (selection) {
+        const readResult = (await window.ipcRenderer.invoke('file:readFile', selection.path)) as ReadFileResult;
+        if (readResult && !readResult.error && readResult.type === 'image') {
+           execCmd('insertImage', readResult.content);
+        } else {
+           alert("Please select a valid image file.");
+        }
+      }
+    } catch (e) {
+      console.error("Failed to insert image", e);
+    }
   };
 
   const changeCase = () => {
@@ -413,13 +499,6 @@ function App() {
   const goToPage = (page: number) => {
     if (textPagination && page >= 1 && page <= textPagination.totalPages) setCurrentPage(page);
   };
-
-  // --- Theme Constants ---
-  const bgMain = isDark ? 'bg-slate-900' : 'bg-slate-50';
-  const textMain = isDark ? 'text-slate-100' : 'text-slate-900';
-  const sidebarBg = isDark ? 'bg-slate-950' : 'bg-white';
-  const borderMain = isDark ? 'border-slate-800' : 'border-slate-200';
-  const toolbarBg = isDark ? 'bg-slate-800' : 'bg-white';
 
   const getToolsForFile = (file: OpenFile) => {
     switch (file.type) {
@@ -453,7 +532,7 @@ function App() {
       return (
         <div className="flex items-center gap-2 h-full">
           <div className={`flex items-center gap-1 pr-4 border-r ${isDark ? 'border-slate-700' : 'border-slate-200'}`}>
-            <ToolButton icon={Save} label="Save" onClick={handleSaveFile} tooltip="Save File (Ctrl+S)" isDark={isDark} />
+            <ToolButton icon={Save} label="Save" onClick={() => { handleSaveFile(); if (activeFile) addToRecent(activeFile); }} tooltip="Save File (Ctrl+S)" isDark={isDark} />
             <ToolButton icon={Printer} label="Print" tooltip="Print File" isDark={isDark} />
             <ToolButton icon={Share2} label="Share" onClick={handleShareFile} tooltip="Share File" isDark={isDark} />
           </div>
@@ -660,6 +739,8 @@ function App() {
                   onOpenSettings={() => setIsSettingsOpen(true)} 
                   onCreateFile={handleCreateFile}
                   theme={effectiveTheme}
+                  recentFiles={recentFiles}
+                  onOpenRecent={openFileFromPath}
                />
             ) : (
               <div className="flex-1 p-8 flex justify-center items-start bg-[radial-gradient(#1e293b_1px,transparent_1px)] bg-size-[16px_16px] overflow-auto w-full h-full">
@@ -772,7 +853,7 @@ function App() {
                 <div className={`flex-1 p-4 space-y-4 overflow-y-auto custom-scrollbar ${isDark ? 'bg-slate-900/50' : 'bg-slate-50'}`}>
                   {chatHistory.map((msg) => (
                     <div key={msg.id} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                       <div className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-bold ${msg.role === 'ai' ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-300'}`}>
+                       <div className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-bold ${msg.role === 'ai' ? 'bg-indigo-600 text-white' : 'bg-slate-400 text-white'}`}>
                          {msg.role === 'ai' ? 'O' : 'Me'}
                        </div>
                        <div className={`rounded-2xl p-3 text-sm leading-relaxed shadow-sm max-w-[85%] ${msg.role === 'ai' ? (isDark ? 'bg-slate-800 text-slate-300' : 'bg-white text-slate-700 border border-slate-200') + ' rounded-tl-none' : 'bg-indigo-600 text-white rounded-tr-none'}`}>
