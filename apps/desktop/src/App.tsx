@@ -43,7 +43,10 @@ import {
   Superscript,
   Eraser,
   Indent,
-  Outdent
+  Outdent,
+  Link as LinkIcon,
+  ImagePlus,
+  FolderOpen
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -70,7 +73,10 @@ import { PdfViewer } from './components/PdfViewer';
 import { DocxViewer } from './components/DocxViewer';
 import { SortableTab } from './components/SortableTab';
 import { HomeDashboard } from './components/HomeDashboard';
+// Fix 1: Type-only import for RecentFile to satisfy verbatimModuleSyntax
+import type { RecentFile } from './components/HomeDashboard';
 import { SettingsModal } from './components/SettingsModal';
+import { FileTree } from './components/FileTree';
 
 // Import Hooks
 import { useFileOperations } from './hooks/useFileOperations';
@@ -94,6 +100,12 @@ interface DialogSelection {
   path: string;
   name: string;
   ext: string;
+}
+
+// Fix 2: Define DirectorySelection interface clearly
+interface DirectorySelection {
+  path: string;
+  name: string;
 }
 
 interface ReadFileResult {
@@ -169,8 +181,12 @@ function App() {
   const [theme, setTheme] = useState<Theme>('dark');
   const [systemTheme, setSystemTheme] = useState<'dark' | 'light'>('dark');
   
+  // File Explorer State
+  const [isExplorerOpen, setIsExplorerOpen] = useState(false);
+  const [explorerPath, setExplorerPath] = useState<string | null>(null);
+
   // History State
-  const [recentFiles, setRecentFiles] = useState<any[]>(() => {
+  const [recentFiles, setRecentFiles] = useState<RecentFile[]>(() => {
     try {
       const saved = localStorage.getItem('omnis-recent-files');
       return saved ? JSON.parse(saved) : [];
@@ -246,7 +262,7 @@ function App() {
   const effectiveTheme = theme === 'system' ? systemTheme : theme;
   const isDark = effectiveTheme === 'dark';
 
-  // --- Theme Constants (Moved to component scope) ---
+  // --- Theme Constants ---
   const bgMain = isDark ? 'bg-slate-900' : 'bg-slate-50';
   const textMain = isDark ? 'text-slate-100' : 'text-slate-900';
   const sidebarBg = isDark ? 'bg-slate-950' : 'bg-white';
@@ -258,7 +274,7 @@ function App() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatHistory, isAiPanelOpen]);
 
-  // Listen for Update Signals
+  // Listen for Update Signals from Backend
   useEffect(() => {
     // @ts-ignore
     if (window.ipcRenderer) {
@@ -373,12 +389,13 @@ function App() {
         lastSavedContent: '' 
       };
     } else {
+      // PDF creation is placeholder for now
       newFile = {
         id: newFileId,
         name: 'Untitled.pdf',
         type: 'pdf',
         ext: 'pdf',
-        content: '', 
+        content: '', // Empty PDF content
         path: '',
         lastSavedContent: ''
       };
@@ -391,6 +408,7 @@ function App() {
 
   const handleOpenFile = async () => {
     try {
+      // @ts-ignore
       const selection = (await window.ipcRenderer.invoke('dialog:openFile')) as DialogSelection | null;
       if (selection) {
         openFileFromPath(selection.path);
@@ -400,7 +418,31 @@ function App() {
     }
   };
 
-  // Open file from path (used by Recent Files)
+  // Open directory handler
+  const handleOpenFolder = async () => {
+    try {
+      // @ts-ignore
+      const selection = (await window.ipcRenderer.invoke('dialog:openDirectory')) as DirectorySelection | null;
+      if (selection) {
+        setExplorerPath(selection.path);
+        setIsExplorerOpen(true);
+        setActiveToolGroup('Explorer');
+      }
+    } catch (error) {
+      console.error('Failed to open directory:', error);
+    }
+  };
+
+  // Toggle Explorer visibility or open dialog if not set
+  const toggleExplorer = () => {
+    if (!explorerPath) {
+      handleOpenFolder();
+    } else {
+      setIsExplorerOpen(!isExplorerOpen);
+    }
+  };
+
+  // Open file from path (used by Recent Files and File Explorer)
   const openFileFromPath = async (filePath: string) => {
     const existing = openFiles.find(f => f.path === filePath);
     if (existing) {
@@ -421,7 +463,7 @@ function App() {
             name: name,
             path: filePath,
             ext: ext,
-            type: readResult.type,
+            type: readResult.type, 
             content: readResult.content,
             lastSavedContent: readResult.content 
         };
@@ -468,8 +510,10 @@ function App() {
   const insertImage = async () => {
     if (viewerMode !== 'edit' || activeFile?.type !== 'html') return;
     try {
+      // @ts-ignore
       const selection = (await window.ipcRenderer.invoke('dialog:openFile')) as DialogSelection | null;
       if (selection) {
+        // @ts-ignore
         const readResult = (await window.ipcRenderer.invoke('file:readFile', selection.path)) as ReadFileResult;
         if (readResult && !readResult.error && readResult.type === 'image') {
            execCmd('insertImage', readResult.content);
@@ -582,11 +626,17 @@ function App() {
                  </div>
               </div>
 
-              {/* Edit Actions Group */}
+              {/* Insert & Actions */}
               <div className={`flex items-center gap-1 px-2 border-r ${isDark ? 'border-slate-700' : 'border-slate-200'}`}>
-                 <div className="flex gap-1">
-                   <FormatBtn icon={Undo} cmd="undo" onClick={() => execCmd('undo')} tooltip="Undo" isDark={isDark} />
-                   <FormatBtn icon={Redo} cmd="redo" onClick={() => execCmd('redo')} tooltip="Redo" isDark={isDark} />
+                 <div className="flex flex-col gap-1">
+                   <div className="flex gap-1">
+                     <FormatBtn icon={LinkIcon} cmd="createLink" onClick={insertLink} tooltip="Insert Link" isDark={isDark} />
+                     <FormatBtn icon={ImagePlus} cmd="insertImage" onClick={insertImage} tooltip="Insert Image" isDark={isDark} />
+                   </div>
+                   <div className="flex gap-1">
+                     <FormatBtn icon={Undo} cmd="undo" onClick={() => execCmd('undo')} tooltip="Undo" isDark={isDark} />
+                     <FormatBtn icon={Redo} cmd="redo" onClick={() => execCmd('redo')} tooltip="Redo" isDark={isDark} />
+                   </div>
                  </div>
               </div>
 
@@ -643,6 +693,15 @@ function App() {
              )}
           </div>
           <nav className="flex flex-col gap-6 w-full items-center">
+            {/* Folder/Explorer Button */}
+            <SidebarBtn 
+                icon={FolderOpen} 
+                active={isExplorerOpen} 
+                onClick={toggleExplorer} 
+                isDark={isDark} 
+                title="File Explorer"
+            />
+            
             <SidebarBtn icon={FileText} active={activeToolGroup === 'Home'} onClick={() => setActiveToolGroup('Home')} isDark={isDark} />
             <SidebarBtn icon={ScanLine} active={activeToolGroup === 'Convert'} onClick={() => setActiveToolGroup('Convert')} isDark={isDark} />
             <SidebarBtn icon={Layers} active={activeToolGroup === 'Merge'} onClick={() => setActiveToolGroup('Merge')} isDark={isDark} />
@@ -650,6 +709,22 @@ function App() {
             <div className={`h-px w-8 ${isDark ? 'bg-slate-800' : 'bg-slate-200'} mx-auto`}></div>
             <SidebarBtn icon={Settings} active={activeToolGroup === 'Settings'} onClick={() => { setIsSettingsOpen(true); setActiveToolGroup('Settings'); }} isDark={isDark} />
           </nav>
+        </div>
+
+        {/* File Tree Panel (Conditional Render with CSS transition) */}
+        <div className={`
+          border-r ${borderMain} ${isDark ? 'bg-slate-900' : 'bg-slate-50'} flex flex-col transition-all duration-300 ease-in-out overflow-hidden
+          ${isExplorerOpen && explorerPath ? 'w-64 opacity-100' : 'w-0 opacity-0'}
+        `}>
+            {explorerPath && (
+                <FileTree 
+                    rootPath={explorerPath} 
+                    onOpenFile={openFileFromPath} 
+                    onChangeFolder={handleOpenFolder}
+                    className="flex-1"
+                    theme={effectiveTheme}
+                />
+            )}
         </div>
 
         {/* Main Content */}
@@ -916,8 +991,8 @@ function App() {
   );
 }
 
-const SidebarBtn = ({ icon: Icon, active, onClick, isDark }: { icon: LucideIcon, active?: boolean, onClick?: () => void, isDark?: boolean }) => (
-  <button onClick={onClick} className={`p-3 rounded-xl transition-all ${active ? (isDark ? 'bg-slate-800 text-indigo-400 shadow-lg shadow-indigo-900/20' : 'bg-indigo-50 text-indigo-600 shadow-sm') : (isDark ? 'text-slate-400 hover:bg-slate-800 hover:text-white' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700')}`}>
+const SidebarBtn = ({ icon: Icon, active, onClick, isDark, title }: { icon: LucideIcon, active?: boolean, onClick?: () => void, isDark?: boolean, title?: string }) => (
+  <button onClick={onClick} title={title} className={`p-3 rounded-xl transition-all ${active ? (isDark ? 'bg-slate-800 text-indigo-400 shadow-lg shadow-indigo-900/20' : 'bg-indigo-50 text-indigo-600 shadow-sm') : (isDark ? 'text-slate-400 hover:bg-slate-800 hover:text-white' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700')}`}>
     <Icon size={22} strokeWidth={active ? 2.5 : 2} />
   </button>
 );

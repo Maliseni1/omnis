@@ -29382,9 +29382,7 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       webSecurity: false,
-      // Helps with loading local resources
       plugins: true
-      // REQUIRED: Enables the native PDF viewer (iframe)
     }
   });
   win.setMenuBarVisibility(false);
@@ -29424,6 +29422,34 @@ electron.ipcMain.handle("dialog:openFile", async () => {
   if (canceled) return null;
   const filePath = filePaths[0];
   return { path: filePath, name: path.basename(filePath), ext: path.extname(filePath).toLowerCase().replace(".", "") };
+});
+electron.ipcMain.handle("dialog:openDirectory", async () => {
+  const { canceled, filePaths } = await electron.dialog.showOpenDialog({ properties: ["openDirectory"] });
+  if (canceled) return null;
+  const dirPath = filePaths[0];
+  return { path: dirPath, name: path.basename(dirPath) };
+});
+electron.ipcMain.handle("file:readDirectory", async (_, dirPath) => {
+  if (!dirPath) return { error: "No directory path provided" };
+  try {
+    const dirents = await fs.readdir(dirPath, { withFileTypes: true });
+    const items = dirents.map((dirent) => ({
+      name: dirent.name,
+      path: path.join(dirPath, dirent.name),
+      isDirectory: dirent.isDirectory(),
+      // Helper for file icons on frontend
+      type: dirent.isDirectory() ? "folder" : path.extname(dirent.name).toLowerCase().replace(".", "")
+    }));
+    items.sort((a, b) => {
+      if (a.isDirectory === b.isDirectory) {
+        return a.name.localeCompare(b.name);
+      }
+      return a.isDirectory ? -1 : 1;
+    });
+    return { items };
+  } catch (err) {
+    return { error: String(err) };
+  }
 });
 electron.ipcMain.handle("dialog:saveFile", async (_, { defaultName, ext }) => {
   const { canceled, filePath } = await electron.dialog.showSaveDialog({

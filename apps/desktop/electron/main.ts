@@ -5,10 +5,7 @@ import mammoth from 'mammoth'
 const HTMLtoDOCX = require('html-to-docx')
 
 // --- CRITICAL LINUX STABILITY FIXES ---
-// 1. Force Software Rendering (Bypasses libva/MESA-INTEL errors)
 app.disableHardwareAcceleration()
-
-// 2. Disable Sandbox and GPU features that often crash on Ubuntu/WSL
 app.commandLine.appendSwitch('no-sandbox')
 app.commandLine.appendSwitch('disable-gpu')
 app.commandLine.appendSwitch('disable-software-rasterizer')
@@ -35,12 +32,11 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: false, // Helps with loading local resources
-      plugins: true // REQUIRED: Enables the native PDF viewer (iframe)
+      webSecurity: false,
+      plugins: true
     },
   })
 
-  // Hide the menu bar
   win.setMenuBarVisibility(false);
 
   win.webContents.on('did-finish-load', () => {
@@ -54,33 +50,28 @@ function createWindow() {
   }
 }
 
-// --- HELPER: Analysis Logic (Shared) ---
+// --- HELPER: Analysis Logic ---
 const analyzeText = (prompt: string, rawContext: string, mode: 'local' | 'cloud'): string => {
   const p = prompt.toLowerCase();
   const plainText = rawContext.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
   const textLower = plainText.toLowerCase();
 
-  // Logic: Word Frequency
   if (p.includes('most used') || p.includes('frequency') || p.includes('common word')) {
     const words = textLower.match(/\b[a-z]{3,}\b/g) || [];
     const stopWords = new Set(['the', 'and', 'for', 'that', 'this', 'with', 'you', 'not', 'are', 'from', 'but', 'have', 'was', 'all', 'can', 'your', 'which', 'will', 'one', 'has', 'been', 'there', 'they', 'our', 'would', 'what', 'so', 'if', 'about', 'who', 'get', 'go', 'me', 'my', 'is', 'it', 'in', 'to', 'of', 'on', 'at', 'by', 'an', 'be', 'as', 'or']);
-    
     const freq: Record<string, number> = {};
     words.forEach(w => { if (!stopWords.has(w)) freq[w] = (freq[w] || 0) + 1; });
     const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]);
     const topWord = sorted[0];
     const prefix = mode === 'cloud' ? "<b>Cloud Frequency Analysis</b><br>" : "";
-    
     if (!topWord) return "No words found to analyze.";
     return `${prefix}The most frequently used word is <b>"${topWord[0]}"</b>, which appears <b>${topWord[1]} times</b>.`;
   }
   
-  // Logic: Summarization
   if (p.includes('summarize') || p.includes('summary')) {
       return `<b>Summary:</b><br>${plainText.substring(0, 300)}...<br><i>(Generated via ${mode} mode)</i>`;
   }
 
-  // Default Fallback
   return `[${mode === 'cloud' ? 'Cloud' : 'Local'}] I received your query: "${prompt}". I can analyze this ${plainText.length}-character document.`;
 };
 
@@ -93,7 +84,41 @@ ipcMain.handle('dialog:openFile', async () => {
   return { path: filePath, name: path.basename(filePath), ext: path.extname(filePath).toLowerCase().replace('.', '') };
 })
 
-// NEW: Save File Dialog Handler
+// NEW: Open Directory Dialog
+ipcMain.handle('dialog:openDirectory', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({ properties: ['openDirectory'] });
+  if (canceled) return null;
+  const dirPath = filePaths[0];
+  return { path: dirPath, name: path.basename(dirPath) };
+})
+
+// NEW: Read Directory Contents
+ipcMain.handle('file:readDirectory', async (_, dirPath) => {
+  if (!dirPath) return { error: 'No directory path provided' };
+  try {
+    const dirents = await fs.readdir(dirPath, { withFileTypes: true });
+    const items = dirents.map(dirent => ({
+      name: dirent.name,
+      path: path.join(dirPath, dirent.name),
+      isDirectory: dirent.isDirectory(),
+      // Helper for file icons on frontend
+      type: dirent.isDirectory() ? 'folder' : path.extname(dirent.name).toLowerCase().replace('.', '')
+    }));
+
+    // Sort folders first, then files alphabetically
+    items.sort((a, b) => {
+      if (a.isDirectory === b.isDirectory) {
+        return a.name.localeCompare(b.name);
+      }
+      return a.isDirectory ? -1 : 1;
+    });
+
+    return { items };
+  } catch (err) {
+    return { error: String(err) };
+  }
+})
+
 ipcMain.handle('dialog:saveFile', async (_, { defaultName, ext }) => {
   const { canceled, filePath } = await dialog.showSaveDialog({
     defaultPath: defaultName,
@@ -105,7 +130,6 @@ ipcMain.handle('dialog:saveFile', async (_, { defaultName, ext }) => {
 ipcMain.handle('file:readFile', async (_, filePath) => {
   if (!filePath) return { error: 'No path provided' }
   const ext = path.extname(filePath).toLowerCase().replace('.', '')
-  
   try {
     if (['png', 'jpg', 'jpeg', 'webp', 'svg'].includes(ext)) {
       const buffer = await fs.readFile(filePath)
@@ -113,7 +137,6 @@ ipcMain.handle('file:readFile', async (_, filePath) => {
     } 
     if (ext === 'pdf') {
       const buffer = await fs.readFile(filePath)
-      // Native iframe needs base64
       return { content: `data:application/pdf;base64,${buffer.toString('base64')}`, type: 'pdf', ext }
     }
     if (ext === 'docx') {
@@ -121,7 +144,6 @@ ipcMain.handle('file:readFile', async (_, filePath) => {
       const result = await mammoth.convertToHtml({ buffer })
       return { content: result.value, type: 'html', ext }
     }
-    // Default Text
     const content = await fs.readFile(filePath, 'utf-8')
     return { content, type: 'text', ext }
   } catch (err) {
