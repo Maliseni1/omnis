@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Moon, Sun, Monitor, Cpu, Type, RefreshCw, CheckCircle, AlertCircle, Download } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -8,6 +9,12 @@ interface SettingsModalProps {
   currentTheme: 'dark' | 'light' | 'system';
   effectiveTheme: 'dark' | 'light';
   onThemeChange: (theme: 'dark' | 'light' | 'system') => void;
+  defaultAiMode: 'local' | 'cloud';
+  onDefaultAiModeChange: (mode: 'local' | 'cloud') => void;
+  spellCheckEnabled: boolean;
+  onSpellCheckEnabledChange: (enabled: boolean) => void;
+  autoSaveEnabled: boolean;
+  onAutoSaveEnabledChange: (enabled: boolean) => void;
 }
 
 // Define the shape of the update check result from the main process
@@ -25,7 +32,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   updateAvailable,
   currentTheme,
   effectiveTheme,
-  onThemeChange
+  onThemeChange,
+  defaultAiMode,
+  onDefaultAiModeChange,
+  spellCheckEnabled,
+  onSpellCheckEnabledChange,
+  autoSaveEnabled,
+  onAutoSaveEnabledChange
 }) => {
   const [checking, setChecking] = useState(false);
   const [status, setStatus] = useState<'idle' | 'available' | 'uptodate' | 'error'>('idle');
@@ -41,8 +54,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setChecking(true);
     setStatus('idle');
     try {
-      // Cast the result to the defined interface to fix 'unknown' type errors
-      // @ts-ignore
       const result = (await window.ipcRenderer.invoke('app:checkUpdate')) as UpdateCheckResult;
       
       setVersionInfo({ current: result.current, latest: result.latest, url: result.url });
@@ -73,7 +84,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const optionBgInactive = isDark ? "bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-white" : "bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-900";
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
       <div className={`${modalBg} ${modalBorder} border w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[80vh] overflow-hidden transition-colors duration-300`}>
         
         {/* Header */}
@@ -179,8 +190,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                    <p className={`${textSub} text-xs`}>Choose between speed (Local) and capability (Cloud).</p>
                  </div>
                  <div className={`flex ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} rounded-lg p-1 border`}>
-                    <button className={`px-3 py-1 ${isDark ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-800'} rounded text-xs shadow-sm`}>Local</button>
-                    <button className={`px-3 py-1 text-xs ${textSub} hover:text-indigo-500`}>Cloud</button>
+                    <button
+                      onClick={() => onDefaultAiModeChange('local')}
+                      className={`px-3 py-1 rounded text-xs transition-colors ${
+                        defaultAiMode === 'local'
+                          ? isDark
+                            ? 'bg-slate-700 text-white shadow-sm'
+                            : 'bg-slate-200 text-slate-800 shadow-sm'
+                          : `${textSub} hover:text-indigo-500`
+                      }`}
+                    >
+                      Local
+                    </button>
+                    <button
+                      onClick={() => onDefaultAiModeChange('cloud')}
+                      className={`px-3 py-1 rounded text-xs transition-colors ${
+                        defaultAiMode === 'cloud'
+                          ? isDark
+                            ? 'bg-slate-700 text-white shadow-sm'
+                            : 'bg-slate-200 text-slate-800 shadow-sm'
+                          : `${textSub} hover:text-indigo-500`
+                      }`}
+                    >
+                      Cloud
+                    </button>
                  </div>
                </div>
             </div>
@@ -194,11 +227,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="space-y-2">
                <label className={`flex items-center justify-between p-3 rounded-lg hover:bg-opacity-50 transition-colors cursor-pointer group ${isDark ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
                   <span className={`text-sm ${isDark ? 'text-slate-300 group-hover:text-white' : 'text-slate-600 group-hover:text-slate-900'}`}>Enable Spell Check</span>
-                  <input type="checkbox" defaultChecked className="accent-indigo-500" />
+                  <input
+                    type="checkbox"
+                    checked={spellCheckEnabled}
+                    onChange={(e) => onSpellCheckEnabledChange(e.target.checked)}
+                    className="accent-indigo-500"
+                  />
                </label>
                <label className={`flex items-center justify-between p-3 rounded-lg hover:bg-opacity-50 transition-colors cursor-pointer group ${isDark ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
                   <span className={`text-sm ${isDark ? 'text-slate-300 group-hover:text-white' : 'text-slate-600 group-hover:text-slate-900'}`}>Auto-Save Documents</span>
-                  <input type="checkbox" defaultChecked className="accent-indigo-500" />
+                  <input
+                    type="checkbox"
+                    checked={autoSaveEnabled}
+                    onChange={(e) => onAutoSaveEnabledChange(e.target.checked)}
+                    className="accent-indigo-500"
+                  />
                </label>
             </div>
           </section>
@@ -215,7 +258,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   );
 };
 
-const ThemeOption = ({ label, icon: Icon, active, disabled, onClick, activeClass, inactiveClass }: { label: string, icon: any, active?: boolean, disabled?: boolean, onClick?: () => void, activeClass: string, inactiveClass: string }) => (
+const ThemeOption = ({ label, icon: Icon, active, disabled, onClick, activeClass, inactiveClass }: { label: string, icon: LucideIcon, active?: boolean, disabled?: boolean, onClick?: () => void, activeClass: string, inactiveClass: string }) => (
   <button 
     onClick={onClick}
     disabled={disabled}

@@ -18,13 +18,13 @@ export interface RecentFile {
   name: string;
   type: string;
   path: string;
-  lastOpened: Date;
+  lastOpened: string | Date;
 }
 
 interface HomeDashboardProps {
   onOpenFile: () => void;
   onOpenSettings: () => void;
-  onCreateFile: (type: 'docx' | 'pdf') => void;
+  onCreateFile: (type: 'docx' | 'pdf' | 'pptx') => void;
   theme: 'dark' | 'light';
   recentFiles?: RecentFile[];
   onOpenRecent?: (path: string) => void;
@@ -40,7 +40,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 }) => {
   const [isNewDocModalOpen, setIsNewDocModalOpen] = useState(false);
 
-  const handleCreate = (type: 'docx' | 'pdf') => {
+  const handleCreate = (type: 'docx' | 'pdf' | 'pptx') => {
     onCreateFile(type);
     setIsNewDocModalOpen(false);
   };
@@ -59,7 +59,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       
       {/* Header */}
       <div className="mb-12">
-        <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-indigo-400 to-violet-400 bg-clip-text text-transparent">Welcome to Omnis</h1>
+        <h1 className="text-4xl font-bold mb-2 bg-linear-to-r from-indigo-400 to-violet-400 bg-clip-text text-transparent">Welcome to Omnis</h1>
         <p className={`${textSub} text-lg`}>Your universal workspace for documents.</p>
       </div>
 
@@ -103,7 +103,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 <FileCard icon={ImageIcon} label="Images" active theme={theme} />
                 <FileCard icon={FileText} label="Text (.txt)" badge="Coming Soon" theme={theme} />
                 <FileCard icon={FileSpreadsheet} label="Excel (.xlsx)" badge="Coming Soon" theme={theme} />
-                <FileCard icon={Presentation} label="PowerPoint" badge="Coming Soon" theme={theme} />
+                <FileCard icon={Presentation} label="PowerPoint (.pptx)" active theme={theme} />
                 <FileCard icon={FileText} label="OpenDoc (.odt)" badge="Coming Soon" theme={theme} />
              </div>
           </div>
@@ -188,7 +188,14 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                     theme={theme} 
                  />
                  <NewDocOption icon={FileSpreadsheet} label="Omnis SpreadSheets" desc="Data & Charts" color="green" disabled theme={theme} />
-                 <NewDocOption icon={Presentation} label="Omnis Presentations" desc="Slides & Visuals" color="orange" disabled theme={theme} />
+                 <NewDocOption
+                    icon={Presentation}
+                    label="Omnis Presentations"
+                    desc="Slides & Visuals (.pptx)"
+                    color="orange"
+                    onClick={() => handleCreate('pptx')}
+                    theme={theme}
+                 />
                  <NewDocOption icon={FileText} label="Omnis Notes" desc="Plain Text (.txt)" color="slate" disabled theme={theme} />
               </div>
               
@@ -206,6 +213,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 const FileIcon = ({ type }: { type: string }) => {
   if (type === 'image') return <ImageIcon size={18} className="text-violet-400" />;
   if (type === 'pdf') return <FileType size={18} className="text-rose-400" />;
+  if (type === 'pptx') return <Presentation size={18} className="text-orange-400" />;
   return <FileText size={18} className="text-emerald-400" />;
 };
 

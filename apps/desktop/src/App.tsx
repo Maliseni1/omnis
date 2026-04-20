@@ -13,6 +13,8 @@ import {
   Wand2,
   Languages,
   FileInput,
+  Link2,
+  ImagePlus,
   Edit3,
   Eye,
   Loader2,
@@ -68,6 +70,7 @@ import {
 // Import Components
 import { PdfViewer } from './components/PdfViewer';
 import { DocxViewer } from './components/DocxViewer';
+import { PresentationViewer } from './components/PresentationViewer';
 import { SortableTab } from './components/SortableTab';
 import { HomeDashboard } from './components/HomeDashboard';
 import { SettingsModal } from './components/SettingsModal';
@@ -77,7 +80,7 @@ import { useFileOperations } from './hooks/useFileOperations';
 
 // --- Types ---
 type ViewerMode = 'view' | 'edit';
-type FileCategory = 'image' | 'pdf' | 'text' | 'html' | 'binary' | 'unknown' | 'error';
+type FileCategory = 'image' | 'pdf' | 'pptx' | 'text' | 'html' | 'binary' | 'unknown' | 'error';
 type Theme = 'dark' | 'light' | 'system';
 
 interface OpenFile {
@@ -101,6 +104,14 @@ interface ReadFileResult {
   type: FileCategory;
   ext: string;
   error?: string;
+}
+
+interface RecentFileEntry {
+  id: string;
+  name: string;
+  type: string;
+  path: string;
+  lastOpened: string;
 }
 
 interface ChatMessage {
@@ -160,7 +171,10 @@ function App() {
   const [activeToolGroup, setActiveToolGroup] = useState<string>('Home');
   const [isAiPanelOpen, setIsAiPanelOpen] = useState<boolean>(false);
   const [viewerMode, setViewerMode] = useState<ViewerMode>('view');
-  const [aiMode, setAiMode] = useState<'cloud' | 'local'>('cloud');
+  const [aiMode, setAiMode] = useState<'cloud' | 'local'>(() => {
+    const saved = localStorage.getItem('omnis-ai-mode');
+    return saved === 'local' ? 'local' : 'cloud';
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [loadingFile, setLoadingFile] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -168,12 +182,33 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>('dark');
   const [systemTheme, setSystemTheme] = useState<'dark' | 'light'>('dark');
+  const [spellCheckEnabled, setSpellCheckEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem('omnis-spellcheck-enabled');
+    return saved !== 'false';
+  });
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem('omnis-autosave-enabled');
+    return saved !== 'false';
+  });
   
   // History State
-  const [recentFiles, setRecentFiles] = useState<any[]>(() => {
+  const [recentFiles, setRecentFiles] = useState<RecentFileEntry[]>(() => {
     try {
       const saved = localStorage.getItem('omnis-recent-files');
-      return saved ? JSON.parse(saved) : [];
+      if (!saved) return [];
+      const parsed = JSON.parse(saved) as unknown;
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((item): item is RecentFileEntry => {
+        if (typeof item !== 'object' || item === null) return false;
+        const candidate = item as Partial<RecentFileEntry>;
+        return (
+          typeof candidate.id === 'string' &&
+          typeof candidate.name === 'string' &&
+          typeof candidate.type === 'string' &&
+          typeof candidate.path === 'string' &&
+          typeof candidate.lastOpened === 'string'
+        );
+      });
     } catch (e) {
       console.error("Failed to parse recent files", e);
       return [];
@@ -208,6 +243,18 @@ function App() {
   // --- Use Custom Hooks ---
   const { handleSaveFile, handleShareFile } = useFileOperations(activeFile, setOpenFiles, setIsLoading);
 
+  useEffect(() => {
+    localStorage.setItem('omnis-ai-mode', aiMode);
+  }, [aiMode]);
+
+  useEffect(() => {
+    localStorage.setItem('omnis-spellcheck-enabled', String(spellCheckEnabled));
+  }, [spellCheckEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem('omnis-autosave-enabled', String(autoSaveEnabled));
+  }, [autoSaveEnabled]);
+
   // --- History Management ---
   const addToRecent = (file: OpenFile) => {
     if (!file.path) return;
@@ -219,7 +266,7 @@ function App() {
         name: file.name,
         type: file.type,
         path: file.path,
-        lastOpened: new Date()
+        lastOpened: new Date().toISOString()
       };
       const updated = [newEntry, ...filtered].slice(0, 10);
       localStorage.setItem('omnis-recent-files', JSON.stringify(updated));
@@ -231,7 +278,16 @@ function App() {
     if (activeFile && activeFile.path) {
       addToRecent(activeFile);
     }
-  }, [activeFile?.path]);
+  }, [activeFile]);
+
+  useEffect(() => {
+    if (!autoSaveEnabled || !activeFile?.path) return;
+    if (activeFile.content === activeFile.lastSavedContent) return;
+    const timer = setTimeout(() => {
+      void handleSaveFile();
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [activeFile?.content, activeFile?.path, activeFile?.lastSavedContent, autoSaveEnabled, handleSaveFile]);
 
   // Determine effective theme based on system preference
   useEffect(() => {
@@ -260,14 +316,10 @@ function App() {
 
   // Listen for Update Signals
   useEffect(() => {
-    // @ts-ignore
-    if (window.ipcRenderer) {
-      // @ts-ignore
-      window.ipcRenderer.on('update-available', (event, info) => {
-        console.log("Update available:", info);
-        setUpdateAvailable(true);
-      });
-    }
+    window.ipcRenderer?.on('update-available', (_event, info: unknown) => {
+      console.log("Update available:", info);
+      setUpdateAvailable(true);
+    });
   }, []);
 
   // Pagination
@@ -358,7 +410,7 @@ function App() {
 
   // --- File Actions ---
 
-  const handleCreateFile = (type: 'docx' | 'pdf') => {
+  const handleCreateFile = (type: 'docx' | 'pdf' | 'pptx') => {
     const newFileId = crypto.randomUUID();
     let newFile: OpenFile;
 
@@ -372,13 +424,25 @@ function App() {
         path: '', 
         lastSavedContent: '' 
       };
-    } else {
+    } else if (type === 'pdf') {
       newFile = {
         id: newFileId,
         name: 'Untitled.pdf',
         type: 'pdf',
         ext: 'pdf',
         content: '', 
+        path: '',
+        lastSavedContent: ''
+      };
+    } else {
+      newFile = {
+        id: newFileId,
+        name: 'Untitled.pptx',
+        type: 'pptx',
+        ext: 'pptx',
+        content: JSON.stringify({
+          slides: [{ id: crypto.randomUUID(), title: 'Slide 1', body: 'Start your presentation here.' }],
+        }),
         path: '',
         lastSavedContent: ''
       };
@@ -449,7 +513,7 @@ function App() {
   };
 
   const execCmd = (command: string, value: string | undefined = undefined) => {
-    if (viewerMode !== 'edit' || activeFile?.type !== 'html') return;
+    if (viewerMode !== 'edit' || (activeFile?.type !== 'html' && activeFile?.type !== 'pptx')) return;
     document.execCommand('styleWithCSS', false, 'true');
     document.execCommand(command, false, value);
     const editor = document.getElementById('editor-container');
@@ -458,7 +522,7 @@ function App() {
 
   // Extended Editing Functions
   const insertLink = () => {
-    if (viewerMode !== 'edit' || activeFile?.type !== 'html') return;
+    if (viewerMode !== 'edit' || (activeFile?.type !== 'html' && activeFile?.type !== 'pptx')) return;
     const url = window.prompt("Enter the URL:");
     if (url) {
       execCmd('createLink', url);
@@ -466,7 +530,7 @@ function App() {
   };
 
   const insertImage = async () => {
-    if (viewerMode !== 'edit' || activeFile?.type !== 'html') return;
+    if (viewerMode !== 'edit' || (activeFile?.type !== 'html' && activeFile?.type !== 'pptx')) return;
     try {
       const selection = (await window.ipcRenderer.invoke('dialog:openFile')) as DialogSelection | null;
       if (selection) {
@@ -483,7 +547,7 @@ function App() {
   };
 
   const changeCase = () => {
-    if (viewerMode !== 'edit' || activeFile?.type !== 'html') return;
+    if (viewerMode !== 'edit' || (activeFile?.type !== 'html' && activeFile?.type !== 'pptx')) return;
     const selection = window.getSelection();
     if (selection && selection.rangeCount > 0) {
       const text = selection.toString();
@@ -504,6 +568,7 @@ function App() {
     switch (file.type) {
       case 'pdf': return [{ icon: PenTool, label: 'Sign' }, { icon: ScanLine, label: 'OCR' }];
       case 'text': return [{ icon: Wand2, label: 'Rewrite' }, { icon: Languages, label: 'Translate' }];
+      case 'pptx': return [{ icon: Wand2, label: 'Rewrite' }, { icon: Languages, label: 'Translate' }];
       case 'image': return [{ icon: FileInput, label: 'To PDF' }, { icon: ScanLine, label: 'Extract Text' }];
       case 'html': return [{ icon: FileInput, label: 'To PDF' }];
       default: return [];
@@ -511,7 +576,7 @@ function App() {
   };
 
   const renderToolbar = () => {
-    const showRichText = activeFile?.type === 'html' && viewerMode === 'edit';
+    const showRichText = (activeFile?.type === 'html' || activeFile?.type === 'pptx') && viewerMode === 'edit';
 
     if (activeToolGroup === 'AI Assistant') {
       return (
@@ -587,6 +652,8 @@ function App() {
                  <div className="flex gap-1">
                    <FormatBtn icon={Undo} cmd="undo" onClick={() => execCmd('undo')} tooltip="Undo" isDark={isDark} />
                    <FormatBtn icon={Redo} cmd="redo" onClick={() => execCmd('redo')} tooltip="Redo" isDark={isDark} />
+                   <FormatBtn icon={Link2} cmd="createLink" onClick={insertLink} tooltip="Insert Link" isDark={isDark} />
+                   <FormatBtn icon={ImagePlus} cmd="insertImage" onClick={insertImage} tooltip="Insert Image" isDark={isDark} />
                  </div>
               </div>
 
@@ -790,6 +857,13 @@ function App() {
                             onUpdate={updateFileContent} 
                           />
                         )}
+                        {activeFile.type === 'pptx' && (
+                          <PresentationViewer
+                            content={activeFile.content}
+                            isEditable={viewerMode === 'edit'}
+                            onUpdate={updateFileContent}
+                          />
+                        )}
                         {activeFile.type === 'text' && (
                           <div className="flex flex-col h-full">
                             <div className="flex-1 relative min-h-[600px]">
@@ -798,7 +872,7 @@ function App() {
                                   className="w-full h-full p-12 font-mono text-sm leading-relaxed focus:outline-none resize-none text-slate-800 bg-white"
                                   value={activeFile.content}
                                   onChange={(e) => updateFileContent(e.target.value)}
-                                  spellCheck={false}
+                                  spellCheck={spellCheckEnabled}
                                 />
                               ) : (
                                 <pre className="w-full h-full p-12 font-mono text-sm leading-relaxed whitespace-pre-wrap overflow-auto text-slate-700 bg-white">
@@ -911,6 +985,12 @@ function App() {
         currentTheme={theme}
         onThemeChange={setTheme}
         effectiveTheme={effectiveTheme}
+        defaultAiMode={aiMode}
+        onDefaultAiModeChange={setAiMode}
+        spellCheckEnabled={spellCheckEnabled}
+        onSpellCheckEnabledChange={setSpellCheckEnabled}
+        autoSaveEnabled={autoSaveEnabled}
+        onAutoSaveEnabledChange={setAutoSaveEnabled}
       />
     </>
   );

@@ -23,9 +23,11 @@
     "@dnd-kit/utilities": "^3.2.2",
     "clsx": "^2.1.1",
     "html-to-docx": "^1.8.0",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.555.0",
     "mammoth": "^1.11.0",
     "pdfjs-dist": "4.4.168",
+    "pptxgenjs": "^4.0.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-pdf": "^9.1.0"
@@ -66,7 +68,10 @@
       "build/icons/**/*"
     ],
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Office",
       "maintainer": "Chiza Labs <chizalabs@gmail.com>",
       "icon": "build/icons",
@@ -96,7 +101,9 @@
       {
         "from": "build/icons/",
         "to": "build/icons/",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ]
   }

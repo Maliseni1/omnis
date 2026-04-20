@@ -2,6 +2,8 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import mammoth from 'mammoth'
+import JSZip from 'jszip'
+import PptxGenJS from 'pptxgenjs'
 const HTMLtoDOCX = require('html-to-docx')
 
 // --- CRITICAL LINUX STABILITY FIXES ---
@@ -84,6 +86,105 @@ const analyzeText = (prompt: string, rawContext: string, mode: 'local' | 'cloud'
   return `[${mode === 'cloud' ? 'Cloud' : 'Local'}] I received your query: "${prompt}". I can analyze this ${plainText.length}-character document.`;
 };
 
+interface PresentationSlide {
+  id: string;
+  title: string;
+  body: string;
+}
+
+interface PresentationDocument {
+  slides: PresentationSlide[];
+}
+
+const decodeXml = (value: string): string =>
+  value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+
+const htmlToPlain = (value: string): string =>
+  value
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
+
+const extractSlidesFromPptx = async (filePath: string): Promise<PresentationDocument> => {
+  const fileBuffer = await fs.readFile(filePath);
+  const zip = await JSZip.loadAsync(fileBuffer);
+  const slideEntries = Object.keys(zip.files)
+    .filter((entry) => /^ppt\/slides\/slide\d+\.xml$/.test(entry))
+    .sort((a, b) => {
+      const aNum = Number((a.match(/slide(\d+)\.xml/) || [])[1] || '0');
+      const bNum = Number((b.match(/slide(\d+)\.xml/) || [])[1] || '0');
+      return aNum - bNum;
+    });
+
+  const slides: PresentationSlide[] = [];
+  for (let index = 0; index < slideEntries.length; index += 1) {
+    const entryPath = slideEntries[index];
+    const xml = await zip.files[entryPath].async('text');
+    const textRuns = Array.from(xml.matchAll(/<a:t[^>]*>([\s\S]*?)<\/a:t>/g), (match) =>
+      decodeXml(match[1]),
+    );
+
+    const [titleRaw, ...bodyRuns] = textRuns;
+    const title = titleRaw?.trim() || `Slide ${index + 1}`;
+    const body = bodyRuns.join('\n').trim();
+    slides.push({ id: `slide-${index + 1}`, title, body });
+  }
+
+  if (slides.length === 0) {
+    slides.push({ id: 'slide-1', title: 'Slide 1', body: '' });
+  }
+
+  return { slides };
+};
+
+const buildPptxFromSlides = async (slides: PresentationSlide[]): Promise<Buffer> => {
+  const pptx = new PptxGenJS();
+  pptx.layout = 'LAYOUT_WIDE';
+  pptx.author = 'Omnis';
+  pptx.subject = 'Presentation';
+  pptx.title = 'Omnis Presentation';
+  pptx.company = 'Chiza Labs';
+
+  const safeSlides = slides.length > 0 ? slides : [{ id: 'slide-1', title: 'Slide 1', body: '' }];
+  safeSlides.forEach((slide, index) => {
+    const page = pptx.addSlide();
+    page.addText(htmlToPlain(slide.title || `Slide ${index + 1}`), {
+      x: 0.5,
+      y: 0.5,
+      w: 12.3,
+      h: 0.9,
+      fontSize: 30,
+      bold: true,
+      color: '1E293B',
+    });
+    page.addText(htmlToPlain(slide.body || ''), {
+      x: 0.7,
+      y: 1.7,
+      w: 12.0,
+      h: 4.8,
+      fontSize: 18,
+      color: '334155',
+      valign: 'top',
+      breakLine: true,
+    });
+  });
+
+  const arrayBuffer = (await pptx.write({ outputType: 'arraybuffer' })) as ArrayBuffer;
+  return Buffer.from(arrayBuffer);
+};
+
 // --- IPC HANDLERS ---
 
 ipcMain.handle('dialog:openFile', async () => {
@@ -121,6 +222,10 @@ ipcMain.handle('file:readFile', async (_, filePath) => {
       const result = await mammoth.convertToHtml({ buffer })
       return { content: result.value, type: 'html', ext }
     }
+    if (ext === 'pptx') {
+      const presentation = await extractSlidesFromPptx(filePath);
+      return { content: JSON.stringify(presentation), type: 'pptx', ext };
+    }
     // Default Text
     const content = await fs.readFile(filePath, 'utf-8')
     return { content, type: 'text', ext }
@@ -135,6 +240,16 @@ ipcMain.handle('file:saveFile', async (_, { path: filePath, content }) => {
     if (ext === 'docx') {
       const buffer = await HTMLtoDOCX(content);
       await fs.writeFile(filePath, buffer)
+    } else if (ext === 'pptx') {
+      let slides: PresentationSlide[] = [];
+      try {
+        const parsed = JSON.parse(content) as PresentationDocument;
+        slides = Array.isArray(parsed.slides) ? parsed.slides : [];
+      } catch {
+        slides = [{ id: 'slide-1', title: 'Slide 1', body: content }];
+      }
+      const buffer = await buildPptxFromSlides(slides);
+      await fs.writeFile(filePath, buffer);
     } else {
       await fs.writeFile(filePath, content, 'utf-8')
     }
@@ -147,6 +262,17 @@ ipcMain.handle('file:saveFile', async (_, { path: filePath, content }) => {
 ipcMain.handle('ai:generate', async (_, { prompt, context, mode }) => {
   await new Promise(resolve => setTimeout(resolve, 800));
   return { response: analyzeText(prompt, context, mode) };
+})
+
+ipcMain.handle('app:checkUpdate', async () => {
+  const current = app.getVersion();
+  // Placeholder updater endpoint until GitHub release checks are integrated.
+  return {
+    update: false,
+    current,
+    latest: current,
+    url: 'https://github.com/maliseni1/omnis/releases',
+  };
 })
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
