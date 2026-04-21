@@ -24,7 +24,7 @@ export interface RecentFile {
 interface HomeDashboardProps {
   onOpenFile: () => void;
   onOpenSettings: () => void;
-  onCreateFile: (type: 'docx' | 'pdf' | 'pptx') => void;
+  onCreateFile: (type: 'docx' | 'pdf' | 'pptx' | 'xlsx') => void;
   theme: 'dark' | 'light';
   recentFiles?: RecentFile[];
   onOpenRecent?: (path: string) => void;
@@ -40,7 +40,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 }) => {
   const [isNewDocModalOpen, setIsNewDocModalOpen] = useState(false);
 
-  const handleCreate = (type: 'docx' | 'pdf' | 'pptx') => {
+  const handleCreate = (type: 'docx' | 'pdf' | 'pptx' | 'xlsx') => {
     onCreateFile(type);
     setIsNewDocModalOpen(false);
   };
@@ -102,7 +102,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 <FileCard icon={FileType} label="PDF (.pdf)" active theme={theme} />
                 <FileCard icon={ImageIcon} label="Images" active theme={theme} />
                 <FileCard icon={FileText} label="Text (.txt)" badge="Coming Soon" theme={theme} />
-                <FileCard icon={FileSpreadsheet} label="Excel (.xlsx)" badge="Coming Soon" theme={theme} />
+                <FileCard icon={FileSpreadsheet} label="Excel (.xlsx)" active theme={theme} />
                 <FileCard icon={Presentation} label="PowerPoint (.pptx)" active theme={theme} />
                 <FileCard icon={FileText} label="OpenDoc (.odt)" badge="Coming Soon" theme={theme} />
              </div>
@@ -187,7 +187,14 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                     disabled
                     theme={theme} 
                  />
-                 <NewDocOption icon={FileSpreadsheet} label="Omnis SpreadSheets" desc="Data & Charts" color="green" disabled theme={theme} />
+                 <NewDocOption
+                    icon={FileSpreadsheet}
+                    label="Omnis SpreadSheets"
+                    desc="Data & Charts (.xlsx)"
+                    color="green"
+                    onClick={() => handleCreate('xlsx')}
+                    theme={theme}
+                 />
                  <NewDocOption
                     icon={Presentation}
                     label="Omnis Presentations"
@@ -214,6 +221,7 @@ const FileIcon = ({ type }: { type: string }) => {
   if (type === 'image') return <ImageIcon size={18} className="text-violet-400" />;
   if (type === 'pdf') return <FileType size={18} className="text-rose-400" />;
   if (type === 'pptx') return <Presentation size={18} className="text-orange-400" />;
+  if (type === 'xlsx') return <FileSpreadsheet size={18} className="text-emerald-500" />;
   return <FileText size={18} className="text-emerald-400" />;
 };
 

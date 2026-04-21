@@ -71,6 +71,7 @@ import {
 import { PdfViewer } from './components/PdfViewer';
 import { DocxViewer } from './components/DocxViewer';
 import { PresentationViewer } from './components/PresentationViewer';
+import { SpreadsheetViewer } from './components/SpreadsheetViewer';
 import { SortableTab } from './components/SortableTab';
 import { HomeDashboard } from './components/HomeDashboard';
 import { SettingsModal } from './components/SettingsModal';
@@ -80,7 +81,7 @@ import { useFileOperations } from './hooks/useFileOperations';
 
 // --- Types ---
 type ViewerMode = 'view' | 'edit';
-type FileCategory = 'image' | 'pdf' | 'pptx' | 'text' | 'html' | 'binary' | 'unknown' | 'error';
+type FileCategory = 'image' | 'pdf' | 'pptx' | 'xlsx' | 'text' | 'html' | 'binary' | 'unknown' | 'error';
 type Theme = 'dark' | 'light' | 'system';
 
 interface OpenFile {
@@ -410,7 +411,7 @@ function App() {
 
   // --- File Actions ---
 
-  const handleCreateFile = (type: 'docx' | 'pdf' | 'pptx') => {
+  const handleCreateFile = (type: 'docx' | 'pdf' | 'pptx' | 'xlsx') => {
     const newFileId = crypto.randomUUID();
     let newFile: OpenFile;
 
@@ -434,7 +435,7 @@ function App() {
         path: '',
         lastSavedContent: ''
       };
-    } else {
+    } else if (type === 'pptx') {
       newFile = {
         id: newFileId,
         name: 'Untitled.pptx',
@@ -442,6 +443,19 @@ function App() {
         ext: 'pptx',
         content: JSON.stringify({
           slides: [{ id: crypto.randomUUID(), title: 'Slide 1', body: 'Start your presentation here.' }],
+        }),
+        path: '',
+        lastSavedContent: ''
+      };
+    } else {
+      newFile = {
+        id: newFileId,
+        name: 'Untitled.xlsx',
+        type: 'xlsx',
+        ext: 'xlsx',
+        content: JSON.stringify({
+          activeSheet: 0,
+          sheets: [{ name: 'Sheet1', rows: 30, cols: 12, cells: {}, styles: {}, merges: [] }],
         }),
         path: '',
         lastSavedContent: ''
@@ -569,6 +583,7 @@ function App() {
       case 'pdf': return [{ icon: PenTool, label: 'Sign' }, { icon: ScanLine, label: 'OCR' }];
       case 'text': return [{ icon: Wand2, label: 'Rewrite' }, { icon: Languages, label: 'Translate' }];
       case 'pptx': return [{ icon: Wand2, label: 'Rewrite' }, { icon: Languages, label: 'Translate' }];
+      case 'xlsx': return [{ icon: Wand2, label: 'SUM' }, { icon: Languages, label: 'AVG' }];
       case 'image': return [{ icon: FileInput, label: 'To PDF' }, { icon: ScanLine, label: 'Extract Text' }];
       case 'html': return [{ icon: FileInput, label: 'To PDF' }];
       default: return [];
@@ -672,6 +687,20 @@ function App() {
                  </div>
               </div>
             </>
+          )}
+          {activeFile?.type === 'xlsx' && viewerMode === 'edit' && (
+            <div className={`flex items-center gap-1 px-3 border-r ${isDark ? 'border-slate-700' : 'border-slate-200'}`}>
+              <ToolButton icon={Bold} label="Bold" onClick={() => window.dispatchEvent(new CustomEvent('omnis:spreadsheet-command', { detail: { command: 'fmt-bold' } }))} tooltip="Toggle bold on selection" isDark={isDark} />
+              <ToolButton icon={Italic} label="Italic" onClick={() => window.dispatchEvent(new CustomEvent('omnis:spreadsheet-command', { detail: { command: 'fmt-italic' } }))} tooltip="Toggle italic on selection" isDark={isDark} />
+              <ToolButton icon={Layers} label="Merge" onClick={() => window.dispatchEvent(new CustomEvent('omnis:spreadsheet-command', { detail: { command: 'merge-cells' } }))} tooltip="Merge selected range" isDark={isDark} />
+              <ToolButton icon={Eraser} label="Split" onClick={() => window.dispatchEvent(new CustomEvent('omnis:spreadsheet-command', { detail: { command: 'split-cells' } }))} tooltip="Split merged cell" isDark={isDark} />
+              <ToolButton icon={Wand2} label="SUM" onClick={() => window.dispatchEvent(new CustomEvent('omnis:spreadsheet-command', { detail: { command: 'fn-sum' } }))} tooltip="Insert SUM formula" isDark={isDark} />
+              <ToolButton icon={Languages} label="AVG" onClick={() => window.dispatchEvent(new CustomEvent('omnis:spreadsheet-command', { detail: { command: 'fn-avg' } }))} tooltip="Insert AVERAGE formula" isDark={isDark} />
+              <ToolButton icon={AlignLeft} label="MIN" onClick={() => window.dispatchEvent(new CustomEvent('omnis:spreadsheet-command', { detail: { command: 'fn-min' } }))} tooltip="Insert MIN formula" isDark={isDark} />
+              <ToolButton icon={AlignRight} label="MAX" onClick={() => window.dispatchEvent(new CustomEvent('omnis:spreadsheet-command', { detail: { command: 'fn-max' } }))} tooltip="Insert MAX formula" isDark={isDark} />
+              <ToolButton icon={Plus} label="Row+" onClick={() => window.dispatchEvent(new CustomEvent('omnis:spreadsheet-command', { detail: { command: 'add-row' } }))} tooltip="Add row" isDark={isDark} />
+              <ToolButton icon={ListOrdered} label="Col+" onClick={() => window.dispatchEvent(new CustomEvent('omnis:spreadsheet-command', { detail: { command: 'add-col' } }))} tooltip="Add column" isDark={isDark} />
+            </div>
           )}
           {!showRichText && (
              <div className="flex items-center gap-1 px-4">
@@ -859,6 +888,13 @@ function App() {
                         )}
                         {activeFile.type === 'pptx' && (
                           <PresentationViewer
+                            content={activeFile.content}
+                            isEditable={viewerMode === 'edit'}
+                            onUpdate={updateFileContent}
+                          />
+                        )}
+                        {activeFile.type === 'xlsx' && (
+                          <SpreadsheetViewer
                             content={activeFile.content}
                             isEditable={viewerMode === 'edit'}
                             onUpdate={updateFileContent}
