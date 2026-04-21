@@ -4,6 +4,7 @@ import fs from 'node:fs/promises'
 import mammoth from 'mammoth'
 import JSZip from 'jszip'
 import PptxGenJS from 'pptxgenjs'
+import * as XLSX from 'xlsx'
 const HTMLtoDOCX = require('html-to-docx')
 
 // --- CRITICAL LINUX STABILITY FIXES ---
@@ -96,6 +97,18 @@ interface PresentationDocument {
   slides: PresentationSlide[];
 }
 
+interface SpreadsheetDocument {
+  activeSheet: number;
+  sheets: Array<{
+    name: string;
+    rows: number;
+    cols: number;
+    cells: Record<string, string>;
+    styles: Record<string, { bold?: boolean; italic?: boolean }>;
+    merges: Array<{ s: { r: number; c: number }; e: { r: number; c: number } }>;
+  }>;
+}
+
 const decodeXml = (value: string): string =>
   value
     .replace(/&lt;/g, '<')
@@ -185,6 +198,70 @@ const buildPptxFromSlides = async (slides: PresentationSlide[]): Promise<Buffer>
   return Buffer.from(arrayBuffer);
 };
 
+const parseXlsxFile = async (filePath: string): Promise<SpreadsheetDocument> => {
+  const fileBuffer = await fs.readFile(filePath);
+  const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
+  const sheets = workbook.SheetNames.map((sheetName, index) => {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet || !sheet['!ref']) {
+      return { name: sheetName || `Sheet${index + 1}`, rows: 30, cols: 12, cells: {}, styles: {}, merges: [] };
+    }
+    const range = XLSX.utils.decode_range(sheet['!ref']);
+    const rows = Math.max(30, range.e.r + 1);
+    const cols = Math.max(12, range.e.c + 1);
+    const cells: Record<string, string> = {};
+
+    for (let r = 0; r <= range.e.r; r += 1) {
+      for (let c = 0; c <= range.e.c; c += 1) {
+        const addr = XLSX.utils.encode_cell({ r, c });
+        const cell = sheet[addr];
+        if (!cell) continue;
+        if (cell.f) cells[addr] = `=${cell.f}`;
+        else if (cell.v !== undefined && cell.v !== null) cells[addr] = String(cell.v);
+      }
+    }
+    const merges = Array.isArray(sheet['!merges'])
+      ? sheet['!merges'].map((m) => ({ s: { r: m.s.r, c: m.s.c }, e: { r: m.e.r, c: m.e.c } }))
+      : [];
+    return { name: sheetName || `Sheet${index + 1}`, rows, cols, cells, styles: {}, merges };
+  });
+
+  return {
+    activeSheet: 0,
+    sheets: sheets.length > 0 ? sheets : [{ name: 'Sheet1', rows: 30, cols: 12, cells: {}, styles: {}, merges: [] }],
+  };
+};
+
+const buildXlsxBuffer = (doc: SpreadsheetDocument): Buffer => {
+  const workbook = XLSX.utils.book_new();
+  const safeSheets = doc.sheets.length > 0 ? doc.sheets : [{ name: 'Sheet1', rows: 30, cols: 12, cells: {}, styles: {}, merges: [] }];
+  safeSheets.forEach((sheetDoc, index) => {
+    const ws = XLSX.utils.aoa_to_sheet([]);
+    const rowCount = Math.max(1, sheetDoc.rows);
+    const colCount = Math.max(1, sheetDoc.cols);
+
+    Object.entries(sheetDoc.cells).forEach(([addr, value]) => {
+      if (!value) return;
+      if (value.startsWith('=')) {
+        ws[addr] = { t: 'n', f: value.slice(1) };
+        return;
+      }
+      const asNumber = Number(value);
+      if (!Number.isNaN(asNumber) && value.trim() !== '') ws[addr] = { t: 'n', v: asNumber };
+      else ws[addr] = { t: 's', v: value };
+    });
+
+    ws['!ref'] = XLSX.utils.encode_range({
+      s: { r: 0, c: 0 },
+      e: { r: rowCount - 1, c: colCount - 1 },
+    });
+    ws['!merges'] = sheetDoc.merges.map((m) => ({ s: { r: m.s.r, c: m.s.c }, e: { r: m.e.r, c: m.e.c } }));
+    XLSX.utils.book_append_sheet(workbook, ws, sheetDoc.name || `Sheet${index + 1}`);
+  });
+  const out = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  return out as Buffer;
+};
+
 // --- IPC HANDLERS ---
 
 ipcMain.handle('dialog:openFile', async () => {
@@ -226,6 +303,10 @@ ipcMain.handle('file:readFile', async (_, filePath) => {
       const presentation = await extractSlidesFromPptx(filePath);
       return { content: JSON.stringify(presentation), type: 'pptx', ext };
     }
+    if (ext === 'xlsx') {
+      const spreadsheet = await parseXlsxFile(filePath);
+      return { content: JSON.stringify(spreadsheet), type: 'xlsx', ext };
+    }
     // Default Text
     const content = await fs.readFile(filePath, 'utf-8')
     return { content, type: 'text', ext }
@@ -249,6 +330,28 @@ ipcMain.handle('file:saveFile', async (_, { path: filePath, content }) => {
         slides = [{ id: 'slide-1', title: 'Slide 1', body: content }];
       }
       const buffer = await buildPptxFromSlides(slides);
+      await fs.writeFile(filePath, buffer);
+    } else if (ext === 'xlsx') {
+      let parsed: SpreadsheetDocument = { activeSheet: 0, sheets: [{ name: 'Sheet1', rows: 30, cols: 12, cells: {}, styles: {}, merges: [] }] };
+      try {
+        const candidate = JSON.parse(content) as Partial<SpreadsheetDocument>;
+        parsed = {
+          activeSheet: typeof candidate.activeSheet === 'number' ? candidate.activeSheet : 0,
+          sheets: Array.isArray(candidate.sheets) && candidate.sheets.length > 0
+            ? candidate.sheets.map((sheet, index) => ({
+                name: typeof sheet.name === 'string' && sheet.name ? sheet.name : `Sheet${index + 1}`,
+                rows: typeof sheet.rows === 'number' ? sheet.rows : 30,
+                cols: typeof sheet.cols === 'number' ? sheet.cols : 12,
+                cells: sheet.cells && typeof sheet.cells === 'object' ? sheet.cells : {},
+                styles: sheet.styles && typeof sheet.styles === 'object' ? sheet.styles : {},
+                merges: Array.isArray(sheet.merges) ? sheet.merges : [],
+              }))
+            : [{ name: 'Sheet1', rows: 30, cols: 12, cells: {}, styles: {}, merges: [] }],
+        };
+      } catch {
+        parsed = { activeSheet: 0, sheets: [{ name: 'Sheet1', rows: 30, cols: 12, cells: { A1: content }, styles: {}, merges: [] }] };
+      }
+      const buffer = buildXlsxBuffer(parsed);
       await fs.writeFile(filePath, buffer);
     } else {
       await fs.writeFile(filePath, content, 'utf-8')
